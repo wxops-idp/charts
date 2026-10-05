@@ -9,3 +9,10 @@
 *.orig
 README.md.gotmpl
 values-test.yaml
+
+# Contributor-only files, not part of the packaged chart.
+tests/
+ci/
+
+# Ignore chart.lock
+Chart.lock

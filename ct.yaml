@@ -1,0 +1,14 @@
+# chart-testing (ct) configuration, used by .github/workflows/lint-test.yaml.
+# `ct lint` runs `helm lint` with every `<chart>/ci/*-values.yaml` (or the chart's values.yaml when there is no ci/ dir),
+# yamllint on Chart.yaml and values.yaml, and the version-increment check.
+chart-dirs:
+  - .
+target-branch: main
+remote: origin
+chart-repos:
+  - dex=https://charts.dexidp.io
+# A changed chart must bump `version` in Chart.yaml, otherwise chart-releaser skips it and the change never ships.
+check-version-increment: true
+# Maintainers here are listed by name and e-mail, not GitHub user names.
+validate-maintainers: false
+lint-conf: lintconf.yaml

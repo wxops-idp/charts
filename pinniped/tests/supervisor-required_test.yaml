@@ -1,0 +1,174 @@
+# Expectations for the Supervisor's required parameters. Every `required` in the templates has a case here:
+# a contribution that adds, removes or renames one must change these tests in the same PR.
+suite: supervisor required parameters
+templates:
+  - templates/supervisor/pinniped-extras.yaml
+  - templates/supervisor/ingress.yaml
+values:
+  - ../values-test.yaml
+tests:
+  - it: renders the FederationDomain and the Dex OIDCIdentityProvider from values-test
+    template: templates/supervisor/pinniped-extras.yaml
+    documentSelector:
+      path: kind
+      value: FederationDomain
+    asserts:
+      - equal:
+          path: spec.issuer
+          value: https://pinniped-supervisor-clusterip.pinniped-supervisor.svc.cluster.local
+
+  - it: renders the Dex OIDCIdentityProvider from values-test
+    template: templates/supervisor/pinniped-extras.yaml
+    documentSelector:
+      path: kind
+      value: OIDCIdentityProvider
+    asserts:
+      - equal:
+          path: metadata.name
+          value: dex-idp
+      - equal:
+          path: spec.issuer
+          value: https://dex.example.com
+
+  - it: renders nothing when the Supervisor is disabled
+    set:
+      supervisor.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # FederationDomain
+  - it: fails when the FederationDomain has no issuer
+    template: templates/supervisor/pinniped-extras.yaml
+    set:
+      supervisor.federationDomain.issuer: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: "supervisor.federationDomain.issuer is required when federationDomain.create=true"
+
+  # Dex identity provider
+  - it: fails when the Dex identity provider has no issuer
+    template: templates/supervisor/pinniped-extras.yaml
+    set:
+      supervisor.identityProviders.dex.issuer: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: "supervisor.identityProviders.dex.issuer is required when dex.create=true"
+
+  - it: fails when the Dex client secret is created without a clientID
+    template: templates/supervisor/pinniped-extras.yaml
+    set:
+      supervisor.identityProviders.dex.clientID: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: "supervisor.identityProviders.dex.clientID is required when createClientSecret=true"
+
+  - it: fails when the Dex client secret is created without a clientSecret
+    template: templates/supervisor/pinniped-extras.yaml
+    set:
+      supervisor.identityProviders.dex.clientSecret: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: "supervisor.identityProviders.dex.clientSecret is required when createClientSecret=true"
+
+  # GitHub identity provider
+  - it: fails when the GitHub client secret is created without a clientID
+    template: templates/supervisor/pinniped-extras.yaml
+    set:
+      supervisor.identityProviders.github.create: true
+      supervisor.identityProviders.github.createClientSecret: true
+      supervisor.identityProviders.github.clientSecret: secret
+    asserts:
+      - failedTemplate:
+          errorMessage: "supervisor.identityProviders.github.clientID is required when createClientSecret=true"
+
+  - it: fails when the GitHub client secret is created without a clientSecret
+    template: templates/supervisor/pinniped-extras.yaml
+    set:
+      supervisor.identityProviders.github.create: true
+      supervisor.identityProviders.github.createClientSecret: true
+      supervisor.identityProviders.github.clientID: id
+    asserts:
+      - failedTemplate:
+          errorMessage: "supervisor.identityProviders.github.clientSecret is required when createClientSecret=true"
+
+  # LDAP identity provider
+  - it: fails when LDAP has no host
+    template: templates/supervisor/pinniped-extras.yaml
+    set:
+      supervisor.identityProviders.ldap.create: true
+    asserts:
+      - failedTemplate:
+          errorMessage: "supervisor.identityProviders.ldap.host is required when ldap.create=true"
+
+  - it: fails when LDAP has no user search base
+    template: templates/supervisor/pinniped-extras.yaml
+    set:
+      supervisor.identityProviders.ldap.create: true
+      supervisor.identityProviders.ldap.host: ldap.example.com:636
+    asserts:
+      - failedTemplate:
+          errorMessage: "supervisor.identityProviders.ldap.userSearch.base is required when ldap.create=true"
+
+  - it: fails when LDAP has no group search base
+    template: templates/supervisor/pinniped-extras.yaml
+    set:
+      supervisor.identityProviders.ldap.create: true
+      supervisor.identityProviders.ldap.host: ldap.example.com:636
+      supervisor.identityProviders.ldap.userSearch.base: ou=users,dc=example,dc=com
+    asserts:
+      - failedTemplate:
+          errorMessage: "supervisor.identityProviders.ldap.groupSearch.base is required when ldap.create=true"
+
+  - it: fails when the LDAP bind secret is created without a username
+    template: templates/supervisor/pinniped-extras.yaml
+    set:
+      supervisor.identityProviders.ldap.create: true
+      supervisor.identityProviders.ldap.host: ldap.example.com:636
+      supervisor.identityProviders.ldap.userSearch.base: ou=users,dc=example,dc=com
+      supervisor.identityProviders.ldap.groupSearch.base: ou=groups,dc=example,dc=com
+      supervisor.identityProviders.ldap.createBindSecret: true
+      supervisor.identityProviders.ldap.bindPassword: secret
+    asserts:
+      - failedTemplate:
+          errorMessage: "supervisor.identityProviders.ldap.bindUsername is required when createBindSecret=true"
+
+  - it: fails when the LDAP bind secret is created without a password
+    template: templates/supervisor/pinniped-extras.yaml
+    set:
+      supervisor.identityProviders.ldap.create: true
+      supervisor.identityProviders.ldap.host: ldap.example.com:636
+      supervisor.identityProviders.ldap.userSearch.base: ou=users,dc=example,dc=com
+      supervisor.identityProviders.ldap.groupSearch.base: ou=groups,dc=example,dc=com
+      supervisor.identityProviders.ldap.createBindSecret: true
+      supervisor.identityProviders.ldap.bindUsername: cn=admin,dc=example,dc=com
+    asserts:
+      - failedTemplate:
+          errorMessage: "supervisor.identityProviders.ldap.bindPassword is required when createBindSecret=true"
+
+  # Ingress hostname
+  - it: renders a Traefik IngressRouteTCP for the hostname in values-test
+    template: templates/supervisor/ingress.yaml
+    asserts:
+      - isKind:
+          of: IngressRouteTCP
+      - equal:
+          path: spec.routes[0].match
+          value: "HostSNI(`pinniped-supervisor-clusterip.pinniped-supervisor.svc.cluster.local`)"
+
+  - it: fails when Traefik ingress is enabled without a hostname
+    template: templates/supervisor/ingress.yaml
+    set:
+      supervisor.ingress.hostname: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: "supervisor.ingress.hostname is required when ingress is enabled"
+
+  - it: fails when NGINX passthrough ingress is enabled without a hostname
+    template: templates/supervisor/ingress.yaml
+    set:
+      supervisor.ingress.provider: nginx
+      supervisor.ingress.hostname: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: "supervisor.ingress.hostname is required when nginx passthrough ingress is enabled"

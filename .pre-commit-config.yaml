@@ -5,6 +5,6 @@ repos:
     hooks:
       - id: helm-docs
         args:
-          # Make the tool search for charts only under the `charts` directory
-          - --chart-search-root=kubernetes/charts
+          # Charts live at the repository root (dexidp/, pinniped/), not under a `charts` directory
+          - --chart-search-root=.
           - --template-files=README.md.gotmpl

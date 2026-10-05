@@ -1,0 +1,76 @@
+# Expectations for the Concierge's required parameters. Every `required` in the templates has a case here:
+# a contribution that adds, removes or renames one must change these tests in the same PR.
+suite: concierge required parameters
+templates:
+  - templates/concierge/pinniped-extras.yaml
+  - templates/concierge/ingress.yaml
+values:
+  - ../values-test.yaml
+tests:
+  - it: renders the JWTAuthenticator from values-test
+    template: templates/concierge/pinniped-extras.yaml
+    documentSelector:
+      path: kind
+      value: JWTAuthenticator
+    asserts:
+      - equal:
+          path: metadata.name
+          value: wxops-idp-jwt-authenticator
+      - equal:
+          path: spec.issuer
+          value: https://pinniped-supervisor-clusterip.pinniped-supervisor.svc.cluster.local
+      - equal:
+          path: spec.audience
+          value: wxops-idp-cluster
+
+  - it: renders no JWTAuthenticator when it is not created
+    template: templates/concierge/pinniped-extras.yaml
+    set:
+      concierge.jwtAuthenticator.create: false
+    asserts:
+      # The two APIServices and the CredentialIssuer remain.
+      - hasDocuments:
+          count: 3
+
+  - it: renders nothing when the Concierge is disabled
+    set:
+      concierge.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: fails when the JWTAuthenticator has no issuer
+    template: templates/concierge/pinniped-extras.yaml
+    set:
+      concierge.jwtAuthenticator.issuer: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: "concierge.jwtAuthenticator.issuer is required when jwtAuthenticator.create=true"
+
+  - it: fails when the JWTAuthenticator has no audience
+    template: templates/concierge/pinniped-extras.yaml
+    set:
+      concierge.jwtAuthenticator.audience: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: "concierge.jwtAuthenticator.audience is required when jwtAuthenticator.create=true"
+
+  - it: fails when Traefik ingress is enabled without a hostname
+    template: templates/concierge/ingress.yaml
+    set:
+      concierge.ingress.enabled: true
+      concierge.ingress.provider: traefik
+      concierge.ingress.hostname: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: "concierge.ingress.hostname is required when ingress is enabled"
+
+  - it: fails when NGINX passthrough ingress is enabled without a hostname
+    template: templates/concierge/ingress.yaml
+    set:
+      concierge.ingress.enabled: true
+      concierge.ingress.provider: nginx
+      concierge.ingress.hostname: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: "concierge.ingress.hostname is required when nginx passthrough ingress is enabled"

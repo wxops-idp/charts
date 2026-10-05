@@ -247,8 +247,8 @@ That why, you can change this one to expose the Concierge right way for support 
 To install the chart with the release name `pinniped`:
 
 ```bash
-helm repo add kubewekend https://kubewekend.xeusnguyen.xyz
-helm install pinniped kubewekend/pinniped
+helm repo add wxops https://charts.wxops.cloud
+helm install pinniped wxops/pinniped
 ```
 
 For local rendering/testing:
