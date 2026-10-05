@@ -1,0 +1,84 @@
+{{- /*
+  Rendered by External Secrets Operator (template engine v2), NOT by Helm. The dexidp chart only swaps
+  the double-underscore marker on the first line below for the static Dex settings from dynamicConfig.base.
+
+  Input: every key returned by the ExternalSecret `dataFrom` scans, prefixed by `rewrite`:
+    connector_<name>  JSON object: {type, id, name, config}
+    client_<name>     JSON object: {id, name, redirectURIs, secret | secretEnv | public, ...}
+    user_<name>       JSON object: {email, username, userID, hash}, hash is a bcrypt hash computed once, never here,
+                      because bcrypt salts randomly and a new salt on every render would restart Dex on every sync
+
+  Fail-closed: any malformed entry makes the sync fail. ESO then keeps the previous Secret, so Dex keeps
+  running on the last good config and the ExternalSecret status shows the reason.
+*/ -}}
+{{- $cfg := fromJson `__BASE_JSON__` -}}
+{{- $baseConnectors := $cfg.connectors | default (list) -}}
+{{- $baseClients := $cfg.staticClients | default (list) -}}
+{{- $baseUsers := $cfg.staticPasswords | default (list) -}}
+{{- $connectors := list -}}
+{{- $clients := list -}}
+{{- $users := list -}}
+{{- $connectorIDs := dict -}}
+{{- $clientIDs := dict -}}
+{{- $userEmails := dict -}}
+{{- $userIDs := dict -}}
+{{- range $c := $baseConnectors -}}{{- $_ := set $connectorIDs $c.id true -}}{{- end -}}
+{{- range $c := $baseClients -}}{{- $_ := set $clientIDs $c.id true -}}{{- end -}}
+{{- range $u := $baseUsers -}}{{- $_ := set $userEmails (lower $u.email) true -}}{{- $_ := set $userIDs $u.userID true -}}{{- end -}}
+{{- range $key, $raw := . -}}
+  {{- if hasPrefix "connector_" $key -}}
+    {{- $o := $raw | toString | fromJson -}}
+    {{- if hasKey $o "Error" -}}{{- fail (printf "%s is not valid JSON: %s" $key $o.Error) -}}{{- end -}}
+    {{- range $f := list "type" "id" "name" "config" -}}
+      {{- if not (hasKey $o $f) -}}{{- fail (printf "%s is missing the %q field" $key $f) -}}{{- end -}}
+    {{- end -}}
+    {{- if hasKey $connectorIDs $o.id -}}{{- fail (printf "%s duplicates connector id %q" $key $o.id) -}}{{- end -}}
+    {{- $_ := set $connectorIDs $o.id true -}}
+    {{- if kindIs "string" $o.config -}}
+      {{- $inner := fromJson $o.config -}}
+      {{- if hasKey $inner "Error" -}}{{- fail (printf "%s: config is not valid JSON: %s" $key $inner.Error) -}}{{- end -}}
+      {{- $_ := set $o "config" $inner -}}
+    {{- end -}}
+    {{- $connectors = append $connectors $o -}}
+  {{- else if hasPrefix "client_" $key -}}
+    {{- $o := $raw | toString | fromJson -}}
+    {{- if hasKey $o "Error" -}}{{- fail (printf "%s is not valid JSON: %s" $key $o.Error) -}}{{- end -}}
+    {{- range $f := list "id" "name" "redirectURIs" -}}
+      {{- if not (hasKey $o $f) -}}{{- fail (printf "%s is missing the %q field" $key $f) -}}{{- end -}}
+    {{- end -}}
+    {{- if not (or (hasKey $o "secret") (hasKey $o "secretEnv") (hasKey $o "public")) -}}
+      {{- fail (printf "%s needs one of secret, secretEnv or public" $key) -}}
+    {{- end -}}
+    {{- if hasKey $clientIDs $o.id -}}{{- fail (printf "%s duplicates client id %q" $key $o.id) -}}{{- end -}}
+    {{- $_ := set $clientIDs $o.id true -}}
+    {{- $clients = append $clients $o -}}
+  {{- else if hasPrefix "user_" $key -}}
+    {{- $o := $raw | toString | fromJson -}}
+    {{- if hasKey $o "Error" -}}{{- fail (printf "%s is not valid JSON: %s" $key $o.Error) -}}{{- end -}}
+    {{- range $f := list "email" "username" "userID" "hash" -}}
+      {{- if not (hasKey $o $f) -}}{{- fail (printf "%s is missing the %q field" $key $f) -}}{{- end -}}
+    {{- end -}}
+    {{- if not (hasPrefix "$2" ($o.hash | toString)) -}}
+      {{- fail (printf "%s: hash must be a bcrypt hash starting with $2a$, not a plain password" $key) -}}
+    {{- end -}}
+    {{- if hasKey $userEmails (lower $o.email) -}}{{- fail (printf "%s duplicates user email %q" $key $o.email) -}}{{- end -}}
+    {{- if hasKey $userIDs $o.userID -}}{{- fail (printf "%s duplicates userID %q" $key $o.userID) -}}{{- end -}}
+    {{- $_ := set $userEmails (lower $o.email) true -}}
+    {{- $_ := set $userIDs $o.userID true -}}
+    {{- $users = append $users $o -}}
+  {{- end -}}
+{{- end -}}
+{{- $allConnectors := concat $baseConnectors $connectors -}}
+{{- $allClients := concat $baseClients $clients -}}
+{{- $allUsers := concat $baseUsers $users -}}
+{{- if and (not $allConnectors) (not $allUsers) (not $cfg.enablePasswordDB) -}}
+  {{- fail "no connectors or users found: add entries under the connectors or users path, or set enablePasswordDB in dynamicConfig.base" -}}
+{{- end -}}
+{{- if $allConnectors -}}{{- $_ := set $cfg "connectors" $allConnectors -}}{{- end -}}
+{{- if $allClients -}}{{- $_ := set $cfg "staticClients" $allClients -}}{{- end -}}
+{{- if $allUsers -}}
+  {{- $_ := set $cfg "staticPasswords" $allUsers -}}
+  {{- /* Default only: an explicit enablePasswordDB in dynamicConfig.base always wins. */ -}}
+  {{- if not (hasKey $cfg "enablePasswordDB") -}}{{- $_ := set $cfg "enablePasswordDB" true -}}{{- end -}}
+{{- end -}}
+{{- $cfg | toYaml -}}

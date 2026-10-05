@@ -1,0 +1,107 @@
+# -- API version used for rendered ExternalSecret resources.
+# Set `external-secrets.io/v1beta1` if your External Secrets Operator does not serve `external-secrets.io/v1` yet.
+externalSecretsApiVersion: external-secrets.io/v1
+
+# -- Defaults applied to every ExternalSecret this chart renders. Individual entries can override them.
+externalSecretDefaults:
+  # -- How often External Secrets Operator re-reads the remote secret.
+  refreshInterval: 1h
+  # -- Reference to the SecretStore that holds the remote secrets. `name` is required.
+  # Prefer a namespaced `SecretStore` in the Dex namespace, bound to a read-only OpenBao role, over a cluster-wide store.
+  secretStoreRef:
+    # -- Name of the SecretStore or ClusterSecretStore.
+    name: ""
+    # -- Kind of the store: `SecretStore` or `ClusterSecretStore`.
+    kind: SecretStore
+
+# -- Builds the Dex `config.yaml` from a secret backend (for example OpenBao) instead of from Helm values.
+# One ExternalSecret scans the connector and client paths, and its template merges the entries with `base` into the final config.
+# Adding, changing or removing a connector or client is a write to the secret store, with no chart change and no GitOps commit.
+# Requires `dex.configSecret.create=false` and `dex.configSecret.name` equal to `secretName`, which are the defaults below.
+dynamicConfig:
+  # -- Render the ExternalSecret that generates the Dex config. Set to false to use `dex.config` and `dex.configSecret.create=true` instead.
+  enabled: true
+  # -- Name of the Secret ESO creates. It must equal `dex.configSecret.name`.
+  secretName: dex-config
+  # -- Poll interval for this ExternalSecret. Also the worst-case delay before a change in the store reaches Dex. Falls back to `externalSecretDefaults.refreshInterval`.
+  refreshInterval: 1m
+  # -- Store override for this ExternalSecret only. Merged over `externalSecretDefaults.secretStoreRef`.
+  secretStoreRef: {}
+  # -- Static Dex settings that rarely change and stay in Git. Connectors and static clients listed here are kept and merged with the ones found in the store.
+  # Must not contain backticks.
+  base:
+    issuer: https://dex.example.com
+    storage:
+      type: kubernetes
+      config:
+        inCluster: true
+    web:
+      http: 0.0.0.0:5556
+    oauth2:
+      skipApprovalScreen: true
+  # -- Where the entries live, as paths relative to the store's KV mount.
+  # Each secret under a path is one JSON object. Connector: `{type, id, name, config}`. Client: `{id, name, redirectURIs, secret|secretEnv|public}`.
+  # User: `{email, username, userID, hash}` where `hash` is a bcrypt hash, never the plain password.
+  sources:
+    connectors:
+      # -- Path scanned for connectors.
+      path: dex/connectors
+      # -- Only secrets whose name matches this regular expression are used.
+      nameRegexp: ".*"
+    clients:
+      # -- Path scanned for static clients.
+      path: dex/clients
+      # -- Only secrets whose name matches this regular expression are used.
+      nameRegexp: ".*"
+    users:
+      # -- Scan for local users (Dex `staticPasswords`). Any user found turns on `enablePasswordDB` unless `base` already sets it. Disable it to use only external connectors.
+      enabled: true
+      # -- Path scanned for local users, for example the bootstrap `admin` account.
+      path: dex/users
+      # -- Only secrets whose name matches this regular expression are used.
+      nameRegexp: ".*"
+
+# -- Extra ExternalSecrets rendered by this chart, keyed by a short name. Each entry produces one Kubernetes Secret.
+# Use it for anything beyond the Dex config, such as a database password exposed through `dex.envFrom`.
+# Entries accept `enabled`, `refreshInterval`, `secretStoreRef`, `target` (`name`, `creationPolicy`, `template`, ...),
+# `data`, `dataFrom` and `annotations`, and map 1:1 onto the ExternalSecret spec.
+# The Secret name is `target.name`, or `<dex fullname>-<key>` when not set.
+# Values are rendered as-is (never through `tpl`), so ESO template expressions such as `{{ .password }}` need no escaping.
+externalSecrets:
+  # -- Example: environment variables for Dex, read from the store. Wire it with `dex.envFrom` and `$VAR` references or `secretEnv`.
+  env:
+    enabled: false
+    target:
+      name: dex-env
+    data:
+      - secretKey: DB_PASSWORD
+        remoteRef:
+          key: dex/database
+          property: password
+
+# -- Values for the upstream Dex chart (https://github.com/dexidp/helm-charts/tree/master/charts/dex).
+# Only the settings this wrapper cares about are listed. Everything else in the upstream `values.yaml` works here too.
+dex:
+  # -- Override the chart name used in resource names.
+  nameOverride: ""
+  # -- Override the full resource name.
+  fullnameOverride: ""
+  # -- Namespace to render into. Defaults to the release namespace.
+  namespaceOverride: ""
+
+  configSecret:
+    # -- Let the Dex chart create the config Secret from `dex.config`. Keep false while `dynamicConfig.enabled=true`.
+    create: false
+    # -- Secret holding the `config.yaml` key. Must equal `dynamicConfig.secretName`.
+    name: dex-config
+
+  # -- Only used when `dynamicConfig.enabled=false` and `dex.configSecret.create=true`. See https://dexidp.io/docs/.
+  config: {}
+
+  # -- Secrets and ConfigMaps exposed as environment variables, for example the `env` ExternalSecret above.
+  envFrom: []
+
+  # -- Extra pod annotations. Dex does not reload its config, so a synced Secret only takes effect after a restart.
+  # The default annotation makes Stakater Reloader restart the pod when a referenced Secret changes. It is harmless without Reloader.
+  podAnnotations:
+    reloader.stakater.com/auto: "true"
