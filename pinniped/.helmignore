@@ -21,3 +21,10 @@
 .idea/
 *.tmproj
 .vscode/
+
+# Contributor-only files, not part of the packaged chart.
+tests/
+ci/
+
+# Ignore chart.lock
+Chart.lock

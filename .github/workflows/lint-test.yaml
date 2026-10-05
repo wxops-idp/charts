@@ -1,0 +1,130 @@
+name: Lint and Test Charts
+
+# Runs on every pull request, so a change is checked before it is merged and released by release.yaml.
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "dexidp/**"
+      - "pinniped/**"
+      - "ct.yaml"
+      - "lintconf.yaml"
+      - ".github/workflows/lint-test.yaml"
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lint-test-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  KUBECONFORM_VERSION: v0.6.7
+  HELM_UNITTEST_VERSION: v1.0.3
+
+jobs:
+  lint-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          # Not "3.x": Python 3.14 removed `ast.Num`, which the yamale that chart-testing installs still uses.
+          python-version: "3.12"
+
+      - name: Set up chart-testing
+        uses: helm/chart-testing-action@v2.7.0
+
+      - name: Set up helm-docs
+        uses: gabe565/setup-helm-docs-action@v1
+
+      - name: Install kubeconform and helm-unittest
+        run: |
+          curl -sSL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin kubeconform
+          helm plugin install https://github.com/helm-unittest/helm-unittest --version "${HELM_UNITTEST_VERSION}" --verify=false
+
+      - name: Build chart dependencies
+        run: |
+          helm repo add dex https://charts.dexidp.io
+          for chart in */Chart.yaml; do
+            helm dependency build "$(dirname "$chart")"
+          done
+
+      # Lint and the version-bump check only apply to charts that changed in this PR.
+      - name: List changed charts
+        id: list-changed
+        run: |
+          changed=$(ct list-changed --config ct.yaml)
+          if [[ -n "$changed" ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "$changed"
+          fi
+
+      # `ct lint --charts` does not check the version, so each changed chart is linted with ct's own check off
+      # and the bump is checked here. A version on main that has no release tag (`<chart>-<version>`, created by
+      # chart-releaser) has not shipped yet, so it can still change without a bump, for example the first 0.1.0.
+      # Once it is released, further changes need a higher version.
+      - name: Lint charts
+        if: steps.list-changed.outputs.changed == 'true'
+        run: |
+          version_of() { sed -n 's/^version:[[:space:]]*"\{0,1\}\([^"[:space:]]*\)"\{0,1\}.*/\1/p'; }
+          failed=0
+          for chart in $(ct list-changed --config ct.yaml); do
+            ct lint --config ct.yaml --charts "$chart" --check-version-increment=false || failed=1
+
+            main_version=$(git show "origin/main:${chart}/Chart.yaml" 2>/dev/null | version_of || true)
+            new_version=$(version_of < "${chart}/Chart.yaml")
+            if [[ -z "$main_version" ]]; then
+              echo "::notice::${chart} is new, no version bump needed"
+            elif [[ -z "$(git tag -l "${chart}-${main_version}")" ]]; then
+              echo "::notice::${chart} ${main_version} has no release yet, skipping the version bump check"
+            elif [[ "$new_version" == "$main_version" || "$(printf '%s\n%s\n' "$main_version" "$new_version" | sort -V | tail -n1)" != "$new_version" ]]; then
+              echo "::error file=${chart}/Chart.yaml::${chart} ${main_version} is released. Bump version above it (now ${new_version})."
+              failed=1
+            fi
+          done
+          exit "$failed"
+
+      # Expectations for the required parameters live in <chart>/tests. A change that adds, removes or renames a
+      # `required` / `fail` must update them in the same PR.
+      - name: Run unit tests
+        run: |
+          for chart in */Chart.yaml; do
+            helm unittest "$(dirname "$chart")"
+          done
+
+      # Renders each chart with its values-test.yaml and validates the manifests against the Kubernetes and CRD schemas.
+      # Pinniped's own CRDs have no published schema, so kinds without one are skipped rather than failed.
+      - name: Render and validate manifests
+        run: |
+          for chart in */Chart.yaml; do
+            dir="$(dirname "$chart")"
+            echo "::group::$dir"
+            helm template test "./$dir" -f "$dir/values-test.yaml" --namespace test \
+              | kubeconform -strict -summary -ignore-missing-schemas \
+                  -schema-location default \
+                  -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+            echo "::endgroup::"
+          done
+
+      - name: Check generated READMEs are up to date
+        run: |
+          helm-docs --chart-search-root=. --template-files=README.md.gotmpl
+          git diff --exit-code -- '*/README.md' || {
+            echo "::error::README.md is out of date. Run helm-docs and commit the result."
+            exit 1
+          }

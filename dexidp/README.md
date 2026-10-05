@@ -1,6 +1,6 @@
 # dexidp
 
-![Version: 0.1.0](https://img.shields.io/badge/Version-0.1.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: v2.44.0](https://img.shields.io/badge/AppVersion-v2.44.0-informational?style=flat-square)
+![Version: 0.1.0](https://img.shields.io/badge/Version-0.1.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: v2.45.1](https://img.shields.io/badge/AppVersion-v2.45.1-informational?style=flat-square)
 
 A thin wrapper around the upstream Dex chart that wires its configuration and secrets through External Secrets Operator.
 
@@ -179,7 +179,7 @@ helm uninstall dex -n idp
 
 | Repository | Name | Version |
 |------------|------|---------|
-| https://charts.dexidp.io | dex | 0.24.1 |
+| https://charts.dexidp.io | dex | 0.25.2 |
 
 ## Values
 

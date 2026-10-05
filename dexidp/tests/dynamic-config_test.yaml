@@ -1,0 +1,95 @@
+# Expectations for the core setting of this chart: the ExternalSecret that builds Dex's config.yaml.
+# A contribution that changes what is required here must change these tests in the same PR.
+suite: dynamic config ExternalSecret
+templates:
+  - templates/externalsecret-config.yaml
+values:
+  - ../values-test.yaml
+tests:
+  - it: renders one ExternalSecret that owns the dex-config Secret
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: ExternalSecret
+      - equal:
+          path: metadata.name
+          value: dex-config
+      - equal:
+          path: spec.target.name
+          value: dex-config
+      - equal:
+          path: spec.target.creationPolicy
+          value: Owner
+      - equal:
+          path: spec.secretStoreRef.name
+          value: dex-openbao
+
+  - it: scans connectors, clients and users paths
+    asserts:
+      - equal:
+          path: spec.dataFrom[0].find.path
+          value: dex/connectors
+      - equal:
+          path: spec.dataFrom[1].find.path
+          value: dex/clients
+      - equal:
+          path: spec.dataFrom[2].find.path
+          value: dex/users
+
+  - it: renders nothing when dynamicConfig is disabled
+    set:
+      dynamicConfig.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: uses the API version from values
+    set:
+      externalSecretsApiVersion: external-secrets.io/v1beta1
+    asserts:
+      - equal:
+          path: apiVersion
+          value: external-secrets.io/v1beta1
+
+  - it: a store on dynamicConfig overrides the default store
+    set:
+      dynamicConfig.secretStoreRef:
+        name: other-store
+        kind: ClusterSecretStore
+    asserts:
+      - equal:
+          path: spec.secretStoreRef.name
+          value: other-store
+      - equal:
+          path: spec.secretStoreRef.kind
+          value: ClusterSecretStore
+
+  # Required parameters: each one must fail the render with a message that says what to set.
+  - it: fails without a secret store
+    set:
+      externalSecretDefaults.secretStoreRef.name: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: "dynamicConfig needs a store: set externalSecretDefaults.secretStoreRef.name or dynamicConfig.secretStoreRef.name"
+
+  - it: fails when Dex would create its own config Secret
+    set:
+      dex.configSecret.create: true
+    asserts:
+      - failedTemplate:
+          errorMessage: "dynamicConfig.enabled=true needs dex.configSecret.create=false, otherwise Dex creates its own config Secret"
+
+  - it: fails when dex.configSecret.name differs from dynamicConfig.secretName
+    set:
+      dex.configSecret.name: something-else
+    asserts:
+      - failedTemplate:
+          errorMessage: 'dex.configSecret.name ("something-else") must equal dynamicConfig.secretName ("dex-config")'
+
+  - it: fails when dynamicConfig.base contains a backtick
+    set:
+      dynamicConfig.base.issuer: "https://dex.example.com/`bad`"
+    asserts:
+      - failedTemplate:
+          errorMessage: "dynamicConfig.base must not contain backticks, they would break the ESO template"
