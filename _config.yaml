@@ -1,0 +1,7 @@
+remote_theme: pages-themes/primer@v0.6.0
+plugins:
+  - jemoji
+  - jekyll-remote-theme
+
+title: W'xOps Charts
+description: This repository contains Helm charts for W'xOps GitOps infrastructure and applications. It is used to manage and deploy various components of the W'xOps platform using Helm and ArgoCD.

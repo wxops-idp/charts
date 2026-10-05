@@ -1,0 +1,4 @@
+externalSecretDefaults:
+  secretStoreRef:
+    name: dex-openbao
+    kind: SecretStore

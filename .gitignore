@@ -1,0 +1,2 @@
+# Subchart tarballs fetched by `helm dependency build`. Chart.lock is committed, the tarballs are not.
+*/charts/*.tgz
