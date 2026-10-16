@@ -2,7 +2,7 @@ apiVersion: v2
 name: pinniped
 description: A Helm chart for Pinniped, a Kubernetes authentication via ImpersonationProxy with Supervisor and Concierge components.
 type: application
-version: 0.1.0
+version: 0.1.1
 appVersion: v0.46.0
 sources:
   - https://github.com/vmware/pinniped

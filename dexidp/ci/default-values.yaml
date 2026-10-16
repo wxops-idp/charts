@@ -1,0 +1,5 @@
+# Used by `ct lint`. The chart needs a SecretStore name to render, so this is the smallest valid install.
+externalSecretDefaults:
+  secretStoreRef:
+    name: dex-openbao
+    kind: SecretStore

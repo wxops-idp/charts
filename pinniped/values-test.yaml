@@ -176,7 +176,7 @@ concierge:
       # -- cert-manager issuer reference used by the Concierge certificate.
       issuerRef:
         # -- Name of the cert-manager issuer.
-        name: "kubewekend-ca-issuer"
+        name: "wxops-idp-ca-issuer"
         # -- Kind of the cert-manager issuer or clusterissuer resource.
         kind: ClusterIssuer
         # -- API group of the cert-manager issuer or clusterissuer resource.
@@ -267,11 +267,11 @@ concierge:
     # -- Create a JWTAuthenticator resource on this cluster's Concierge.
     create: true
     # -- Name of the JWTAuthenticator resource.
-    name: kubewekend-jwt-authenticator
+    name: wxops-idp-jwt-authenticator
     # -- Issuer URL of the Supervisor FederationDomain. Must exactly match `supervisor.federationDomain.issuer`.
     issuer: "https://pinniped-supervisor-clusterip.pinniped-supervisor.svc.cluster.local"
     # -- Unique audience identifier for this cluster.
-    audience: "kubewekend-cluster"
+    audience: "wxops-idp-cluster"
     # -- Base64-encoded PEM CA bundle for validating the Supervisor TLS certificate. Leave empty when using a publicly trusted CA.
     certificateAuthorityData: ""
     # -- Dynamic CA bundle source watched by Pinniped for rotation (alternative to `certificateAuthorityData`).
@@ -389,7 +389,7 @@ supervisor:
       # -- cert-manager issuer reference used by the Supervisor certificate.
       issuerRef:
         # -- Name of the cert-manager issuer.
-        name: "kubewekend-ca-issuer"
+        name: "wxops-idp-ca-issuer"
         # -- Kind of the cert-manager issuer or clusterissuer resource.
         kind: ClusterIssuer
         # -- API group of the cert-manager issuer or clusterissuer resource.
