@@ -3,6 +3,35 @@ entries:
   dexidp:
   - apiVersion: v2
     appVersion: v2.45.1
+    created: "2026-10-16T02:10:22.208478282Z"
+    dependencies:
+    - name: dex
+      repository: https://charts.dexidp.io
+      version: 0.25.2
+    description: A thin wrapper around the upstream Dex chart that wires its configuration
+      and secrets through External Secrets Operator.
+    digest: 4e0bb8bc65da9fb05538542950ed70b9329a5ae7721f08bb8f0f09a4c3465660
+    home: https://dexidp.io/
+    keywords:
+    - dex
+    - dexidp
+    - oidc
+    - identity-provider
+    - external-secrets
+    maintainers:
+    - email: xeusnguyen@gmail.com
+      name: Xeus Nguyen
+      url: https://wiki.xeusnguyen.xyz
+    name: dexidp
+    sources:
+    - https://github.com/dexidp/dex
+    - https://github.com/dexidp/helm-charts/tree/master/charts/dex
+    type: application
+    urls:
+    - https://github.com/wxops-idp/charts/releases/download/dexidp-0.1.1/dexidp-0.1.1.tgz
+    version: 0.1.1
+  - apiVersion: v2
+    appVersion: v2.45.1
     created: "2026-10-05T04:08:03.036382251Z"
     dependencies:
     - name: dex
@@ -33,6 +62,30 @@ entries:
   pinniped:
   - apiVersion: v2
     appVersion: v0.46.0
+    created: "2026-10-16T02:10:22.409812602Z"
+    description: A Helm chart for Pinniped, a Kubernetes authentication via ImpersonationProxy
+      with Supervisor and Concierge components.
+    digest: ad63be23488e402579d2d4eaf6ceb94c2c1d091927a805f389cef268cb6bfb0a
+    keywords:
+    - kubernetes-login
+    - secure-kubernetes-access
+    - authentication
+    - impersonation-proxy
+    - supervisor
+    - concierge
+    maintainers:
+    - email: xeusnguyen@gmail.com
+      name: Xeus Nguyen
+      url: https://wiki.xeusnguyen.xyz
+    name: pinniped
+    sources:
+    - https://github.com/vmware/pinniped
+    type: application
+    urls:
+    - https://github.com/wxops-idp/charts/releases/download/pinniped-0.1.1/pinniped-0.1.1.tgz
+    version: 0.1.1
+  - apiVersion: v2
+    appVersion: v0.46.0
     created: "2026-10-05T04:08:03.155891828Z"
     description: A Helm chart for Pinniped, a Kubernetes authentication via ImpersonationProxy
       with Supervisor and Concierge components.
@@ -55,4 +108,4 @@ entries:
     urls:
     - https://github.com/wxops-idp/charts/releases/download/pinniped-0.1.0/pinniped-0.1.0.tgz
     version: 0.1.0
-generated: "2026-10-05T04:08:03.155904422Z"
+generated: "2026-10-16T02:10:22.409824334Z"
