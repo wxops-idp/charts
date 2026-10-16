@@ -2,7 +2,7 @@ apiVersion: v2
 name: dexidp
 description: A thin wrapper around the upstream Dex chart that wires its configuration and secrets through External Secrets Operator.
 type: application
-version: 0.1.0
+version: 0.1.1
 appVersion: v2.45.1
 home: https://dexidp.io/
 sources:

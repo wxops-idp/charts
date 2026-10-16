@@ -6,5 +6,5 @@ repos:
       - id: helm-docs
         args:
           # Make the tool search for charts only under the `charts` directory
-          - --chart-search-root=kubernetes/charts
+          - --chart-search-root=./
           - --template-files=README.md.gotmpl

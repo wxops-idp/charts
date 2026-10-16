@@ -25,20 +25,41 @@ dynamicConfig:
   secretName: dex-config
   # -- Poll interval for this ExternalSecret. Also the worst-case delay before a change in the store reaches Dex. Falls back to `externalSecretDefaults.refreshInterval`.
   refreshInterval: 1m
+  # -- What ESO does when a scanned path holds no secret. `Merge` skips that source and still renders the config from `base` and the other sources, so connectors, clients and users are all optional.
+  # `Retain` (the ESO default) fails the sync with `Secret does not exist` and never creates the Secret. `Delete` removes the Secret when every source is empty, which would take Dex's config away.
+  deletionPolicy: Merge
   # -- Store override for this ExternalSecret only. Merged over `externalSecretDefaults.secretStoreRef`.
   secretStoreRef: {}
   # -- Static Dex settings that rarely change and stay in Git. Connectors and static clients listed here are kept and merged with the ones found in the store.
   # Must not contain backticks.
+  # ref: https://github.com/dexidp/dex/blob/master/config.yaml.dist
   base:
+    # -- The public URL of the Dex server. Must match the Ingress host and TLS certificate.
     issuer: https://dex.example.com
+    # -- The storage backend. Dex supports Kubernetes, MySQL, PostgreSQL and SQLite.
+    # ref: https://dexidp.io/docs/configuration/storage/
     storage:
       type: kubernetes
       config:
         inCluster: true
+    # -- HTTP Service Configuration
     web:
       http: 0.0.0.0:5556
+    # -- OAUth2 Configuration
+    # ref: https://dexidp.io/docs/configuration/oauth2/
     oauth2:
       skipApprovalScreen: true
+    # -- Signing key for Dex
+    # ref: https://dexidp.io/docs/configuration/tokens/#token-signing-configuration
+    signer:
+      type: local
+      config:
+        keysRotationPeriod: "6h"
+        algorithm: "RS256" # supported values: "RS256" (default) and "ES256"; changes apply on the next key rotation
+    # -- It's a "virtual" connector (identity provider) that stores login credentials in Dex's store.
+    # NOTE: Dex can run default with this configuration, and not requires connectors, clients, or staticpassword (users)
+    # ref: https://dexidp.io/docs/connectors/local/
+    enablePasswordDB: true
   # -- Where the entries live, as paths relative to the store's KV mount.
   # Each secret under a path is one JSON object. Connector: `{type, id, name, config}`. Client: `{id, name, redirectURIs, secret|secretEnv|public}`.
   # User: `{email, username, userID, hash}` where `hash` is a bcrypt hash, never the plain password.

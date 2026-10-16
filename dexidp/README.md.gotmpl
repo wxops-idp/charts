@@ -58,7 +58,7 @@ bao kv put -mount=wxops dex/connectors/github @github.json
 bao kv put -mount=wxops dex/clients/pinniped @pinniped.json
 ```
 
-A connector needs `type`, `id`, `name` and `config`. A client needs `id`, `name`, `redirectURIs` and one of `secret`, `secretEnv` or `public`. `config` may be a nested object or a JSON string.
+A connector needs `type`, `id`, `name` and `config`. A client needs `id`, `name`, `redirectURIs` and one of `secret`, `secretEnv` or `public`. `config` may be a nested object or a JSON string, and `redirectURIs` may be a list or a JSON list inside a string, because some tools store lists that way. Both end up as the same list in the Dex config.
 
 ### Local users (bootstrap admin)
 
@@ -76,7 +76,7 @@ jq -n --arg hash "$HASH" --arg id "$(uuidgen)" '{
 }' | bao kv put -mount=wxops dex/users/admin -
 ```
 
-A user needs `email`, `username`, `userID` and `hash`. The optional fields `name`, `emailVerified`, `preferredUsername` and `groups` are passed through as they are, see the [Dex example](https://github.com/dexidp/dex/blob/master/config.yaml.dist). Users sign in with their **email**, and `username` is the display login. Downstream apps read the `email` claim, so use a real address unless you are sure every app accepts a bare `admin`.
+A user needs `email`, `username`, `userID` and `hash`. The optional fields `name`, `emailVerified`, `preferredUsername` and `groups` are passed through as they are, see the [Dex example](https://github.com/dexidp/dex/blob/master/config.yaml.dist). `groups` must be a list of strings, or a JSON list inside a string (`"[\"admins\"]"`) for tools that store lists that way, and becomes the `groups` claim when the client asks for the `groups` scope. Users sign in with their **email**, and `username` is the display login. Downstream apps read the `email` claim, so use a real address unless you are sure every app accepts a bare `admin`.
 
 Do not commit a default password to this repository or to your values. Choose it when you write the hash to OpenBao, and rotate it once the real identity providers are in place.
 
@@ -115,13 +115,19 @@ Set `externalSecretDefaults.secretStoreRef.name: dex-openbao`. The chart does no
 
 ## When something is wrong
 
-The template validates every entry and fails the sync on anything malformed: invalid JSON, a missing required field, a duplicate `id`, `email` or `userID`, a client with no `secret`, `secretEnv` or `public`, a user whose `hash` is not bcrypt, or no connector and no user at all. When a sync fails, ESO keeps the previous Secret, so Dex keeps running on the last good config. The reason is in the ExternalSecret status:
+The template validates every entry and fails the sync on anything malformed: invalid JSON, a missing required field, a duplicate `id`, `email` or `userID`, a client with no `secret`, `secretEnv` or `public`, a user whose `hash` is not bcrypt, a client whose `redirectURIs` or a user whose `groups` is not a list of strings, or no connector and no user at all. When a sync fails, ESO keeps the previous Secret, so Dex keeps running on the last good config. The reason is in the ExternalSecret status:
 
 ```bash
 kubectl -n idp describe externalsecret dex-config
 ```
 
 An invalid entry therefore blocks all later changes until it is fixed, and it fails loudly instead of silently dropping the entry.
+
+### Empty paths are not an error
+
+Connectors, clients and users are all optional. The ExternalSecret sets `deletionPolicy: Merge` (`dynamicConfig.deletionPolicy`), so a scanned path with no secret is skipped, and ESO records a normal `missing provider secret` event instead of failing. A fresh install with only `dynamicConfig.base` renders as long as the base sets `enablePasswordDB: true` or lists a connector, because Dex needs one of them to start.
+
+With ESO's own default, `Retain`, an empty path fails the whole sync with `Secret does not exist` and `dex-config` is never created. Do not set `Delete`: when every source is empty it removes the Secret and takes Dex's config with it.
 
 ## Static mode
 
@@ -131,7 +137,7 @@ To use plain Helm values instead, set `dynamicConfig.enabled=false`, `dex.config
 
 The chart is linted and rendered with `helm template`, and the ESO template logic was run through Helm's Go template engine with valid and invalid entries. These points still need a run against a real External Secrets Operator and OpenBao:
 
-- `dataFrom.find` with `rewrite` returns the expected `connector_` and `client_` keys, and an empty path does not make the sync error.
+- `dataFrom.find` with `rewrite` returns the expected `connector_`, `client_` and `user_` keys, and an empty path is skipped with `deletionPolicy: Merge` instead of failing the sync. This follows External Secrets Operator v1.2.1's source and is not yet confirmed on a cluster.
 - ESO's template engine provides `fail`, `fromJson`, `toYaml`, `concat` and `kindIs`, and renders large integers as plain numbers.
 - On a failed sync the old Secret stays in place, and with one replica the old pod keeps serving while a new pod fails to start.
 - Reloader restarts the pod when the Secret changes.
