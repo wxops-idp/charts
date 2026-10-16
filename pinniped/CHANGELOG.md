@@ -2,7 +2,7 @@
 
 ## 0.1.1 - 2026-10-16
 
-### Add
+### Added
 
 - Refine readme with couple new values and name of chart for easier pull and apply
 
