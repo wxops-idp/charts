@@ -1,0 +1,6 @@
+# chart-releaser (cr) configuration, passed by release.yaml through the action's `config` input.
+#
+# The body of each chart's GitHub release is the file below, read from inside the packaged chart. release.yaml
+# writes it from the chart's CHANGELOG.md just before packaging, so it holds the section for that version.
+# Without it, the release body would be the chart description.
+release-notes-file: RELEASE-NOTES.md

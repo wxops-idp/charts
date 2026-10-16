@@ -1,2 +1,6 @@
-# Subchart tarballs fetched by `helm dependency build`. Chart.lock is committed, the tarballs are not.
+# Subchart tarballs fetched by `helm dependency build`. To prevent the error for locking version bump, tarbar and Chart.lock should ignore
 */charts/*.tgz
+*/**/Chart.lock
+
+# Written by the release workflow from CHANGELOG.md just before a chart is packaged.
+*/RELEASE-NOTES.md

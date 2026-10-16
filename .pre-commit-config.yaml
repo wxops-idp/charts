@@ -8,3 +8,14 @@ repos:
           # Make the tool search for charts only under the `charts` directory
           - --chart-search-root=./
           - --template-files=README.md.gotmpl
+
+  - repo: local
+    hooks:
+      # Each chart keeps a hand-written <chart>/CHANGELOG.md. This fails the commit when a chart's version has no
+      # entry, and regenerates the version table in the root README.md (stage it when the hook reports a change).
+      - id: chart-changelog
+        name: chart changelogs
+        entry: python3 .github/scripts/changelog.py sync
+        language: system
+        pass_filenames: false
+        files: '(^|/)(Chart\.yaml|CHANGELOG\.md)$|^README\.md$|^\.github/scripts/changelog\.py$'

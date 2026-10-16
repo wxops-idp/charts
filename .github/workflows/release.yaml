@@ -24,10 +24,36 @@ jobs:
           git config user.name "$GITHUB_ACTOR"
           git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
 
+      # The release body of a chart is its CHANGELOG.md section for the version being released (see cr.yaml).
+      # Failing here stops the release when a chart's version has no changelog entry.
+      - name: Write release notes
+        run: |
+          for chart in */Chart.yaml; do
+            dir="$(dirname "$chart")"
+            python3 .github/scripts/changelog.py notes "$dir" > "$dir/RELEASE-NOTES.md"
+          done
+
       - name: Run chart-releaser
         uses: helm/chart-releaser-action@v1.6.0
         with:
+          config: cr.yaml
           skip_existing: true
           charts_dir: .
         env:
           CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+
+      # charts.wxops.cloud is built from the gh-pages branch, which has its own README.md. Publish this README (with
+      # the generated version table) there. The Deploy GitHub Pages workflow runs after this one and picks it up.
+      - name: Publish README to the chart site
+        if: github.ref == 'refs/heads/main'
+        run: |
+          git fetch origin gh-pages
+          git worktree add -B gh-pages "$RUNNER_TEMP/gh-pages" origin/gh-pages
+          cp README.md "$RUNNER_TEMP/gh-pages/README.md"
+          git -C "$RUNNER_TEMP/gh-pages" add README.md
+          if git -C "$RUNNER_TEMP/gh-pages" diff --cached --quiet; then
+            echo "gh-pages README is already up to date"
+          else
+            git -C "$RUNNER_TEMP/gh-pages" commit -m "docs: publish the chart version table from main"
+            git -C "$RUNNER_TEMP/gh-pages" push origin gh-pages
+          fi
