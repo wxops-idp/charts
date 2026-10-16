@@ -1,6 +1,7 @@
 name: Lint and Test Charts
 
-# Runs on every pull request, so a change is checked before it is merged and released by release.yaml.
+# Runs on every pull request, so a change is checked before it is merged and released by release.yaml, and again on
+# `main` after the merge, which keeps the status badge in the README current and re-checks the merged result.
 on:
   pull_request:
     branches:
@@ -10,6 +11,20 @@ on:
       - "pinniped/**"
       - "ct.yaml"
       - "lintconf.yaml"
+      - "README.md"
+      - ".github/scripts/**"
+      - ".github/workflows/lint-test.yaml"
+
+  push:
+    branches:
+      - main
+    paths:
+      - "dexidp/**"
+      - "pinniped/**"
+      - "ct.yaml"
+      - "lintconf.yaml"
+      - "README.md"
+      - ".github/scripts/**"
       - ".github/workflows/lint-test.yaml"
 
   # Allows you to run this workflow manually from the Actions tab
@@ -20,7 +35,8 @@ permissions:
 
 concurrency:
   group: lint-test-${{ github.ref }}
-  cancel-in-progress: true
+  # Only a newer push to a PR makes an older run pointless. Every run on main is kept, so the badge is never "cancelled".
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   KUBECONFORM_VERSION: v0.6.7
@@ -68,6 +84,12 @@ jobs:
       - name: List changed charts
         id: list-changed
         run: |
+          # On main and on manual runs there is no PR base to compare with, so every chart is checked.
+          if [[ "$GITHUB_EVENT_NAME" != "pull_request" ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "All charts, this is not a pull request"
+            exit 0
+          fi
           changed=$(ct list-changed --config ct.yaml)
           if [[ -n "$changed" ]]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
@@ -81,6 +103,13 @@ jobs:
       - name: Lint charts
         if: steps.list-changed.outputs.changed == 'true'
         run: |
+          # Outside a pull request every chart is linted and the bump check is skipped: on main a version equals
+          # its own release tag, which the PR rule below would report as "released, bump the version".
+          if [[ "$GITHUB_EVENT_NAME" != "pull_request" ]]; then
+            ct lint --all --config ct.yaml --check-version-increment=false
+            exit 0
+          fi
+
           version_of() { sed -n 's/^version:[[:space:]]*"\{0,1\}\([^"[:space:]]*\)"\{0,1\}.*/\1/p'; }
           failed=0
           for chart in $(ct list-changed --config ct.yaml); do
@@ -120,6 +149,17 @@ jobs:
                   -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
             echo "::endgroup::"
           done
+
+      # Every chart's current version needs a <chart>/CHANGELOG.md entry, and the chart table in the root README.md
+      # must be the one generated from them. Same check as the pre-commit hook, for contributors who don't run it.
+      - name: Check changelogs
+        run: |
+          python3 .github/scripts/changelog.py check
+          python3 .github/scripts/changelog.py generate
+          git diff --exit-code -- README.md || {
+            echo "::error::The chart table in README.md is out of date. Run 'python3 .github/scripts/changelog.py generate' and commit the result."
+            exit 1
+          }
 
       - name: Check generated READMEs are up to date
         run: |

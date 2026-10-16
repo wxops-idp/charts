@@ -24,8 +24,9 @@ helm-docs --chart-search-root=. --template-files=README.md.gotmpl
 ## Changing a chart
 
 1. **Bump `version` in `Chart.yaml`.** chart-releaser skips a chart whose version already has a release, so without a bump the change never ships. Use a patch bump for fixes, a minor bump for new values, and a major bump for anything that breaks an existing install. The check only applies once the version on `main` has a release tag (`<chart>-<version>`), so a version that has not shipped yet, such as the first `0.1.0`, can still change without a bump.
-2. **Update `values-test.yaml`** when you add a feature that needs values to render. It is the baseline the tests and `kubeconform` use, so it should render the chart with its main features on.
-3. **Run `helm-docs`** and commit the regenerated `README.md`.
+2. **Add a `## <version> - YYYY-MM-DD` section at the top of `<chart>/CHANGELOG.md`**, written by hand: what was added, changed or fixed, and anything the core side or an upgrade needs to know. It becomes the body of the chart's GitHub release. Then run `python3 .github/scripts/changelog.py sync` (the `chart-changelog` pre-commit hook does this) and commit the regenerated chart table in the root `README.md`, which is also what the chart site shows.
+3. **Update `values-test.yaml`** when you add a feature that needs values to render. It is the baseline the tests and `kubeconform` use, so it should render the chart with its main features on.
+4. **Run `helm-docs`** and commit the regenerated `README.md`.
 
 ## Required parameters and core settings
 

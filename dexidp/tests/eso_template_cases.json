@@ -1,0 +1,270 @@
+[
+  {
+    "name": "connector, client and user with groups render into the Dex config",
+    "input": {
+      "connector_github": "{\"type\":\"github\",\"id\":\"github\",\"name\":\"GitHub\",\"config\":{\"clientID\":\"abc\",\"clientSecret\":\"s\"}}",
+      "client_pinniped": "{\"id\":\"pinniped\",\"name\":\"Pinniped\",\"secret\":\"x\",\"redirectURIs\":[\"https://sup.example.com/callback\"]}",
+      "user_admin": "{\"email\":\"admin@wxops.cloud\",\"username\":\"admin\",\"userID\":\"11111111-1111-1111-1111-111111111111\",\"hash\":\"$2a$10$abcdefghijklmnopqrstuv\",\"groups\":[\"wxops-admins\",\"team-a/admins\"]}"
+    },
+    "contains": [
+      "connectors:",
+      "staticClients:",
+      "staticPasswords:",
+      "enablePasswordDB: true",
+      "- wxops-admins",
+      "- team-a/admins"
+    ]
+  },
+  {
+    "name": "optional user fields are passed through",
+    "input": {
+      "user_admin": "{\"email\":\"admin@wxops.cloud\",\"username\":\"admin\",\"name\":\"Administrator\",\"userID\":\"u1\",\"hash\":\"$2a$10$abcdefghijklmnopqrstuv\",\"emailVerified\":true,\"preferredUsername\":\"root\"}"
+    },
+    "contains": [
+      "name: Administrator",
+      "emailVerified: true",
+      "preferredUsername: root"
+    ]
+  },
+  {
+    "name": "no entries at all still renders when base sets enablePasswordDB",
+    "base": {
+      "issuer": "https://dex.example.com",
+      "enablePasswordDB": true,
+      "storage": {
+        "type": "memory"
+      }
+    },
+    "input": {},
+    "contains": [
+      "issuer: https://dex.example.com",
+      "enablePasswordDB: true"
+    ],
+    "not_contains": [
+      "connectors:",
+      "staticClients:",
+      "staticPasswords:"
+    ]
+  },
+  {
+    "name": "only a connector: no clients or users sections are emitted",
+    "input": {
+      "connector_gitea": "{\"type\":\"gitea\",\"id\":\"gitea\",\"name\":\"Gitea\",\"config\":{\"clientID\":\"a\"}}"
+    },
+    "contains": [
+      "connectors:",
+      "id: gitea"
+    ],
+    "not_contains": [
+      "staticClients:",
+      "staticPasswords:",
+      "enablePasswordDB"
+    ]
+  },
+  {
+    "name": "no connectors, no users and no enablePasswordDB fails",
+    "input": {},
+    "error": "no connectors or users found"
+  },
+  {
+    "name": "a connector config given as a JSON string is expanded",
+    "input": {
+      "connector_gitea": "{\"type\":\"gitea\",\"id\":\"gitea\",\"name\":\"Gitea\",\"config\":\"{\\\"clientID\\\":\\\"abc\\\"}\"}"
+    },
+    "contains": [
+      "clientID: abc"
+    ]
+  },
+  {
+    "name": "groups containing a number fails",
+    "input": {
+      "user_admin": "{\"email\":\"a@b.c\",\"username\":\"a\",\"userID\":\"u1\",\"hash\":\"$2a$10$abcdefghijklmnopqrstuv\",\"groups\":[\"ok\",7]}"
+    },
+    "error": "user_admin: groups must be a list of strings, found a"
+  },
+  {
+    "name": "groups set to null is accepted and dropped by Dex",
+    "input": {
+      "user_admin": "{\"email\":\"a@b.c\",\"username\":\"a\",\"userID\":\"u1\",\"hash\":\"$2a$10$abcdefghijklmnopqrstuv\",\"groups\":null}"
+    },
+    "contains": [
+      "staticPasswords:"
+    ]
+  },
+  {
+    "name": "a user without a hash fails",
+    "input": {
+      "user_admin": "{\"email\":\"a@b.c\",\"username\":\"a\",\"userID\":\"u1\"}"
+    },
+    "error": "user_admin is missing the \"hash\" field"
+  },
+  {
+    "name": "hashFromEnv is not accepted, the hash must be in the store",
+    "input": {
+      "user_admin": "{\"email\":\"a@b.c\",\"username\":\"a\",\"userID\":\"u1\",\"hashFromEnv\":\"ADMIN_HASH\"}"
+    },
+    "error": "user_admin is missing the \"hash\" field"
+  },
+  {
+    "name": "a plain password in hash fails",
+    "input": {
+      "user_admin": "{\"email\":\"a@b.c\",\"username\":\"a\",\"userID\":\"u1\",\"hash\":\"hunter2\"}"
+    },
+    "error": "hash must be a bcrypt hash"
+  },
+  {
+    "name": "two users with the same email fail",
+    "input": {
+      "user_a": "{\"email\":\"a@b.c\",\"username\":\"a\",\"userID\":\"u1\",\"hash\":\"$2a$10$abcdefghijklmnopqrstuv\"}",
+      "user_b": "{\"email\":\"A@B.C\",\"username\":\"b\",\"userID\":\"u2\",\"hash\":\"$2a$10$abcdefghijklmnopqrstuv\"}"
+    },
+    "error": "duplicates user email"
+  },
+  {
+    "name": "a client with no secret, secretEnv or public fails",
+    "input": {
+      "client_pinniped": "{\"id\":\"pinniped\",\"name\":\"Pinniped\",\"redirectURIs\":[\"https://x/callback\"]}",
+      "connector_gitea": "{\"type\":\"gitea\",\"id\":\"gitea\",\"name\":\"Gitea\",\"config\":{}}"
+    },
+    "error": "needs one of secret, secretEnv or public"
+  },
+  {
+    "name": "a store connector that reuses a base connector id fails",
+    "base": {
+      "issuer": "https://dex.example.com",
+      "connectors": [
+        {
+          "type": "github",
+          "id": "github",
+          "name": "GitHub",
+          "config": {}
+        }
+      ]
+    },
+    "input": {
+      "connector_other": "{\"type\":\"github\",\"id\":\"github\",\"name\":\"Other\",\"config\":{}}"
+    },
+    "error": "duplicates connector id"
+  },
+  {
+    "name": "invalid JSON in an entry fails",
+    "input": {
+      "connector_gitea": "{not json"
+    },
+    "error": "connector_gitea is not valid JSON"
+  },
+  {
+    "name": "an entry that is a JSON list, not an object, fails",
+    "input": {
+      "connector_gitea": "[1,2]"
+    },
+    "error": "connector_gitea is not valid JSON, it must be a JSON object"
+  },
+  {
+    "name": "a connector config string with invalid JSON fails",
+    "input": {
+      "connector_gitea": "{\"type\": \"gitea\", \"id\": \"gitea\", \"name\": \"Gitea\", \"config\": \"{oops\"}"
+    },
+    "error": "connector_gitea: config is not valid JSON, it must be a JSON object"
+  },
+  {
+    "name": "base without connectors, clients or users keys does not trip missingkey=error",
+    "base": {
+      "issuer": "https://dex.example.com",
+      "enablePasswordDB": true
+    },
+    "input": {
+      "user_admin": "{\"email\": \"a@b.c\", \"username\": \"a\", \"userID\": \"u1\", \"hash\": \"$2a$10$abcdefghijklmnopqrstuv\"}"
+    },
+    "contains": [
+      "staticPasswords:",
+      "enablePasswordDB: true"
+    ]
+  },
+  {
+    "name": "groups as a native list (reference for the JSON-string case)",
+    "input": {
+      "connector_gitea": "{\"type\": \"gitea\", \"id\": \"gitea\", \"name\": \"Gitea\", \"config\": {\"clientID\": \"a\"}}",
+      "user_a": "{\"email\": \"a@b.c\", \"username\": \"a\", \"userID\": \"u1\", \"hash\": \"$2a$10$abcdefghijklmnopqrstuv\", \"groups\": [\"wxops-admins\", \"team-a/admins\"]}"
+    },
+    "contains": [
+      "- wxops-admins",
+      "- team-a/admins"
+    ]
+  },
+  {
+    "name": "groups as a JSON-encoded string gives the same config as a native list",
+    "input": {
+      "connector_gitea": "{\"type\": \"gitea\", \"id\": \"gitea\", \"name\": \"Gitea\", \"config\": {\"clientID\": \"a\"}}",
+      "user_a": "{\"email\": \"a@b.c\", \"username\": \"a\", \"userID\": \"u1\", \"hash\": \"$2a$10$abcdefghijklmnopqrstuv\", \"groups\": \"[\\\"wxops-admins\\\", \\\"team-a/admins\\\"]\"}"
+    },
+    "same_output_as": "groups as a native list (reference for the JSON-string case)"
+  },
+  {
+    "name": "groups as a string that is not JSON fails with a hint",
+    "input": {
+      "connector_gitea": "{\"type\": \"gitea\", \"id\": \"gitea\", \"name\": \"Gitea\", \"config\": {\"clientID\": \"a\"}}",
+      "user_a": "{\"email\": \"a@b.c\", \"username\": \"a\", \"userID\": \"u1\", \"hash\": \"$2a$10$abcdefghijklmnopqrstuv\", \"groups\": \"wxops-admins\"}"
+    },
+    "error": "user_a: groups is a string but not a JSON list"
+  },
+  {
+    "name": "groups as a JSON string holding an object fails",
+    "input": {
+      "connector_gitea": "{\"type\": \"gitea\", \"id\": \"gitea\", \"name\": \"Gitea\", \"config\": {\"clientID\": \"a\"}}",
+      "user_a": "{\"email\": \"a@b.c\", \"username\": \"a\", \"userID\": \"u1\", \"hash\": \"$2a$10$abcdefghijklmnopqrstuv\", \"groups\": \"{\\\"a\\\":1}\"}"
+    },
+    "error": "user_a: groups is a string but not a JSON list"
+  },
+  {
+    "name": "groups as a JSON string holding a number entry fails",
+    "input": {
+      "connector_gitea": "{\"type\": \"gitea\", \"id\": \"gitea\", \"name\": \"Gitea\", \"config\": {\"clientID\": \"a\"}}",
+      "user_a": "{\"email\": \"a@b.c\", \"username\": \"a\", \"userID\": \"u1\", \"hash\": \"$2a$10$abcdefghijklmnopqrstuv\", \"groups\": \"[\\\"ok\\\", 7]\"}"
+    },
+    "error": "user_a: groups must be a list of strings, found a"
+  },
+  {
+    "name": "redirectURIs as a native list (reference for the JSON-string case)",
+    "input": {
+      "connector_gitea": "{\"type\": \"gitea\", \"id\": \"gitea\", \"name\": \"Gitea\", \"config\": {\"clientID\": \"a\"}}",
+      "client_pinniped": "{\"id\": \"pinniped\", \"name\": \"Pinniped\", \"secret\": \"x\", \"redirectURIs\": [\"https://sup.example.com/callback\", \"https://sup2.example.com/callback\"]}"
+    },
+    "contains": [
+      "- https://sup.example.com/callback",
+      "- https://sup2.example.com/callback"
+    ]
+  },
+  {
+    "name": "redirectURIs as a JSON-encoded string gives the same config as a native list",
+    "input": {
+      "connector_gitea": "{\"type\": \"gitea\", \"id\": \"gitea\", \"name\": \"Gitea\", \"config\": {\"clientID\": \"a\"}}",
+      "client_pinniped": "{\"id\": \"pinniped\", \"name\": \"Pinniped\", \"secret\": \"x\", \"redirectURIs\": \"[\\\"https://sup.example.com/callback\\\", \\\"https://sup2.example.com/callback\\\"]\"}"
+    },
+    "same_output_as": "redirectURIs as a native list (reference for the JSON-string case)"
+  },
+  {
+    "name": "redirectURIs as a string that is not JSON fails with a hint",
+    "input": {
+      "connector_gitea": "{\"type\": \"gitea\", \"id\": \"gitea\", \"name\": \"Gitea\", \"config\": {\"clientID\": \"a\"}}",
+      "client_pinniped": "{\"id\": \"pinniped\", \"name\": \"Pinniped\", \"secret\": \"x\", \"redirectURIs\": \"https://sup.example.com/callback\"}"
+    },
+    "error": "client_pinniped: redirectURIs is a string but not a JSON list"
+  },
+  {
+    "name": "redirectURIs holding a number entry fails",
+    "input": {
+      "connector_gitea": "{\"type\": \"gitea\", \"id\": \"gitea\", \"name\": \"Gitea\", \"config\": {\"clientID\": \"a\"}}",
+      "client_pinniped": "{\"id\": \"pinniped\", \"name\": \"Pinniped\", \"secret\": \"x\", \"redirectURIs\": [\"https://ok\", 3]}"
+    },
+    "error": "client_pinniped: redirectURIs must be a list of strings, found a"
+  },
+  {
+    "name": "redirectURIs that is neither a string nor a list fails",
+    "input": {
+      "connector_gitea": "{\"type\": \"gitea\", \"id\": \"gitea\", \"name\": \"Gitea\", \"config\": {\"clientID\": \"a\"}}",
+      "client_pinniped": "{\"id\": \"pinniped\", \"name\": \"Pinniped\", \"secret\": \"x\", \"redirectURIs\": {\"a\": \"b\"}}"
+    },
+    "error": "client_pinniped: redirectURIs must be a list of strings"
+  }
+]

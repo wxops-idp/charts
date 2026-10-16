@@ -1,6 +1,6 @@
 # dexidp
 
-![Version: 0.1.0](https://img.shields.io/badge/Version-0.1.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: v2.45.1](https://img.shields.io/badge/AppVersion-v2.45.1-informational?style=flat-square)
+![Version: 0.1.1](https://img.shields.io/badge/Version-0.1.1-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: v2.45.1](https://img.shields.io/badge/AppVersion-v2.45.1-informational?style=flat-square)
 
 A thin wrapper around the upstream Dex chart that wires its configuration and secrets through External Secrets Operator.
 
@@ -57,7 +57,7 @@ bao kv put -mount=wxops dex/connectors/github @github.json
 bao kv put -mount=wxops dex/clients/pinniped @pinniped.json
 ```
 
-A connector needs `type`, `id`, `name` and `config`. A client needs `id`, `name`, `redirectURIs` and one of `secret`, `secretEnv` or `public`. `config` may be a nested object or a JSON string.
+A connector needs `type`, `id`, `name` and `config`. A client needs `id`, `name`, `redirectURIs` and one of `secret`, `secretEnv` or `public`. `config` may be a nested object or a JSON string, and `redirectURIs` may be a list or a JSON list inside a string, because some tools store lists that way. Both end up as the same list in the Dex config.
 
 ### Local users (bootstrap admin)
 
@@ -75,7 +75,7 @@ jq -n --arg hash "$HASH" --arg id "$(uuidgen)" '{
 }' | bao kv put -mount=wxops dex/users/admin -
 ```
 
-A user needs `email`, `username`, `userID` and `hash`. The optional fields `name`, `emailVerified`, `preferredUsername` and `groups` are passed through as they are, see the [Dex example](https://github.com/dexidp/dex/blob/master/config.yaml.dist). Users sign in with their **email**, and `username` is the display login. Downstream apps read the `email` claim, so use a real address unless you are sure every app accepts a bare `admin`.
+A user needs `email`, `username`, `userID` and `hash`. The optional fields `name`, `emailVerified`, `preferredUsername` and `groups` are passed through as they are, see the [Dex example](https://github.com/dexidp/dex/blob/master/config.yaml.dist). `groups` must be a list of strings, or a JSON list inside a string (`"[\"admins\"]"`) for tools that store lists that way, and becomes the `groups` claim when the client asks for the `groups` scope. Users sign in with their **email**, and `username` is the display login. Downstream apps read the `email` claim, so use a real address unless you are sure every app accepts a bare `admin`.
 
 Do not commit a default password to this repository or to your values. Choose it when you write the hash to OpenBao, and rotate it once the real identity providers are in place.
 
@@ -114,13 +114,19 @@ Set `externalSecretDefaults.secretStoreRef.name: dex-openbao`. The chart does no
 
 ## When something is wrong
 
-The template validates every entry and fails the sync on anything malformed: invalid JSON, a missing required field, a duplicate `id`, `email` or `userID`, a client with no `secret`, `secretEnv` or `public`, a user whose `hash` is not bcrypt, or no connector and no user at all. When a sync fails, ESO keeps the previous Secret, so Dex keeps running on the last good config. The reason is in the ExternalSecret status:
+The template validates every entry and fails the sync on anything malformed: invalid JSON, a missing required field, a duplicate `id`, `email` or `userID`, a client with no `secret`, `secretEnv` or `public`, a user whose `hash` is not bcrypt, a client whose `redirectURIs` or a user whose `groups` is not a list of strings, or no connector and no user at all. When a sync fails, ESO keeps the previous Secret, so Dex keeps running on the last good config. The reason is in the ExternalSecret status:
 
 ```bash
 kubectl -n idp describe externalsecret dex-config
 ```
 
 An invalid entry therefore blocks all later changes until it is fixed, and it fails loudly instead of silently dropping the entry.
+
+### Empty paths are not an error
+
+Connectors, clients and users are all optional. The ExternalSecret sets `deletionPolicy: Merge` (`dynamicConfig.deletionPolicy`), so a scanned path with no secret is skipped, and ESO records a normal `missing provider secret` event instead of failing. A fresh install with only `dynamicConfig.base` renders as long as the base sets `enablePasswordDB: true` or lists a connector, because Dex needs one of them to start.
+
+With ESO's own default, `Retain`, an empty path fails the whole sync with `Secret does not exist` and `dex-config` is never created. Do not set `Delete`: when every source is empty it removes the Secret and takes Dex's config with it.
 
 ## Static mode
 
@@ -130,7 +136,7 @@ To use plain Helm values instead, set `dynamicConfig.enabled=false`, `dex.config
 
 The chart is linted and rendered with `helm template`, and the ESO template logic was run through Helm's Go template engine with valid and invalid entries. These points still need a run against a real External Secrets Operator and OpenBao:
 
-- `dataFrom.find` with `rewrite` returns the expected `connector_` and `client_` keys, and an empty path does not make the sync error.
+- `dataFrom.find` with `rewrite` returns the expected `connector_`, `client_` and `user_` keys, and an empty path is skipped with `deletionPolicy: Merge` instead of failing the sync. This follows External Secrets Operator v1.2.1's source and is not yet confirmed on a cluster.
 - ESO's template engine provides `fail`, `fromJson`, `toYaml`, `concat` and `kindIs`, and renders large integers as plain numbers.
 - On a failed sync the old Secret stays in place, and with one replica the old pod keeps serving while a new pod fails to start.
 - Reloader restarts the pod when the Secret changes.
@@ -194,8 +200,15 @@ helm uninstall dex -n idp
 | dex.nameOverride | string | `""` | Override the chart name used in resource names. |
 | dex.namespaceOverride | string | `""` | Namespace to render into. Defaults to the release namespace. |
 | dex.podAnnotations | object | `{"reloader.stakater.com/auto":"true"}` | Extra pod annotations. Dex does not reload its config, so a synced Secret only takes effect after a restart. The default annotation makes Stakater Reloader restart the pod when a referenced Secret changes. It is harmless without Reloader. |
-| dynamicConfig | object | `{"base":{"issuer":"https://dex.example.com","oauth2":{"skipApprovalScreen":true},"storage":{"config":{"inCluster":true},"type":"kubernetes"},"web":{"http":"0.0.0.0:5556"}},"enabled":true,"refreshInterval":"1m","secretName":"dex-config","secretStoreRef":{},"sources":{"clients":{"nameRegexp":".*","path":"dex/clients"},"connectors":{"nameRegexp":".*","path":"dex/connectors"},"users":{"enabled":true,"nameRegexp":".*","path":"dex/users"}}}` | Builds the Dex `config.yaml` from a secret backend (for example OpenBao) instead of from Helm values. One ExternalSecret scans the connector and client paths, and its template merges the entries with `base` into the final config. Adding, changing or removing a connector or client is a write to the secret store, with no chart change and no GitOps commit. Requires `dex.configSecret.create=false` and `dex.configSecret.name` equal to `secretName`, which are the defaults below. |
-| dynamicConfig.base | object | `{"issuer":"https://dex.example.com","oauth2":{"skipApprovalScreen":true},"storage":{"config":{"inCluster":true},"type":"kubernetes"},"web":{"http":"0.0.0.0:5556"}}` | Static Dex settings that rarely change and stay in Git. Connectors and static clients listed here are kept and merged with the ones found in the store. Must not contain backticks. |
+| dynamicConfig | object | `{"base":{"enablePasswordDB":true,"issuer":"https://dex.example.com","oauth2":{"skipApprovalScreen":true},"signer":{"config":{"algorithm":"RS256","keysRotationPeriod":"6h"},"type":"local"},"storage":{"config":{"inCluster":true},"type":"kubernetes"},"web":{"http":"0.0.0.0:5556"}},"deletionPolicy":"Merge","enabled":true,"refreshInterval":"1m","secretName":"dex-config","secretStoreRef":{},"sources":{"clients":{"nameRegexp":".*","path":"dex/clients"},"connectors":{"nameRegexp":".*","path":"dex/connectors"},"users":{"enabled":true,"nameRegexp":".*","path":"dex/users"}}}` | Builds the Dex `config.yaml` from a secret backend (for example OpenBao) instead of from Helm values. One ExternalSecret scans the connector and client paths, and its template merges the entries with `base` into the final config. Adding, changing or removing a connector or client is a write to the secret store, with no chart change and no GitOps commit. Requires `dex.configSecret.create=false` and `dex.configSecret.name` equal to `secretName`, which are the defaults below. |
+| dynamicConfig.base | object | `{"enablePasswordDB":true,"issuer":"https://dex.example.com","oauth2":{"skipApprovalScreen":true},"signer":{"config":{"algorithm":"RS256","keysRotationPeriod":"6h"},"type":"local"},"storage":{"config":{"inCluster":true},"type":"kubernetes"},"web":{"http":"0.0.0.0:5556"}}` | Static Dex settings that rarely change and stay in Git. Connectors and static clients listed here are kept and merged with the ones found in the store. Must not contain backticks. ref: https://github.com/dexidp/dex/blob/master/config.yaml.dist |
+| dynamicConfig.base.enablePasswordDB | bool | `true` | It's a "virtual" connector (identity provider) that stores login credentials in Dex's store. NOTE: Dex can run default with this configuration, and not requires connectors, clients, or staticpassword (users) ref: https://dexidp.io/docs/connectors/local/ |
+| dynamicConfig.base.issuer | string | `"https://dex.example.com"` | The public URL of the Dex server. Must match the Ingress host and TLS certificate. |
+| dynamicConfig.base.oauth2 | object | `{"skipApprovalScreen":true}` | OAUth2 Configuration ref: https://dexidp.io/docs/configuration/oauth2/ |
+| dynamicConfig.base.signer | object | `{"config":{"algorithm":"RS256","keysRotationPeriod":"6h"},"type":"local"}` | Signing key for Dex ref: https://dexidp.io/docs/configuration/tokens/#token-signing-configuration |
+| dynamicConfig.base.storage | object | `{"config":{"inCluster":true},"type":"kubernetes"}` | The storage backend. Dex supports Kubernetes, MySQL, PostgreSQL and SQLite. ref: https://dexidp.io/docs/configuration/storage/ |
+| dynamicConfig.base.web | object | `{"http":"0.0.0.0:5556"}` | HTTP Service Configuration |
+| dynamicConfig.deletionPolicy | string | `"Merge"` | What ESO does when a scanned path holds no secret. `Merge` skips that source and still renders the config from `base` and the other sources, so connectors, clients and users are all optional. `Retain` (the ESO default) fails the sync with `Secret does not exist` and never creates the Secret. `Delete` removes the Secret when every source is empty, which would take Dex's config away. |
 | dynamicConfig.enabled | bool | `true` | Render the ExternalSecret that generates the Dex config. Set to false to use `dex.config` and `dex.configSecret.create=true` instead. |
 | dynamicConfig.refreshInterval | string | `"1m"` | Poll interval for this ExternalSecret. Also the worst-case delay before a change in the store reaches Dex. Falls back to `externalSecretDefaults.refreshInterval`. |
 | dynamicConfig.secretName | string | `"dex-config"` | Name of the Secret ESO creates. It must equal `dex.configSecret.name`. |

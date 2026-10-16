@@ -37,6 +37,52 @@ tests:
           path: spec.dataFrom[2].find.path
           value: dex/users
 
+  # `find` returns the full path (dex/connectors/gitea), and ESO rejects keys that contain `/`.
+  # The rewrite must keep only the last path segment, or the sync fails with "invalid secret keys".
+  - it: rewrites found keys to a prefix plus the last path segment
+    asserts:
+      - equal:
+          path: spec.dataFrom[0].rewrite[0].regexp.source
+          value: "^(?:.*/)?([^/]+)$"
+      - equal:
+          path: spec.dataFrom[0].rewrite[0].regexp.target
+          value: "connector_$1"
+      - equal:
+          path: spec.dataFrom[1].rewrite[0].regexp.source
+          value: "^(?:.*/)?([^/]+)$"
+      - equal:
+          path: spec.dataFrom[1].rewrite[0].regexp.target
+          value: "client_$1"
+      - equal:
+          path: spec.dataFrom[2].rewrite[0].regexp.source
+          value: "^(?:.*/)?([^/]+)$"
+      - equal:
+          path: spec.dataFrom[2].rewrite[0].regexp.target
+          value: "user_$1"
+
+  # With ESO's default (Retain) an empty scanned path fails the whole sync and the Secret is never created.
+  # Merge skips an empty source and still renders the config from base and the other sources.
+  - it: defaults deletionPolicy to Merge so an empty path does not fail the sync
+    asserts:
+      - equal:
+          path: spec.target.deletionPolicy
+          value: Merge
+
+  - it: lets deletionPolicy be overridden
+    set:
+      dynamicConfig.deletionPolicy: Retain
+    asserts:
+      - equal:
+          path: spec.target.deletionPolicy
+          value: Retain
+
+  - it: fails on an unknown deletionPolicy
+    set:
+      dynamicConfig.deletionPolicy: Forget
+    asserts:
+      - failedTemplate:
+          errorMessage: 'dynamicConfig.deletionPolicy must be Merge, Retain or Delete, got "Forget"'
+
   - it: renders nothing when dynamicConfig is disabled
     set:
       dynamicConfig.enabled: false
