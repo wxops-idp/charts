@@ -2,8 +2,8 @@ apiVersion: v2
 name: wxops-portal
 description: A Helm chart for the W'xOps Portal, an Internal Developer Portal for Kubernetes-native platform teams, with secrets from External Secrets Operator and a Traefik IngressRoute.
 type: application
-version: 0.1.0
-appVersion: "0.5.2"
+version: 0.1.1
+appVersion: "v0.5.2"
 home: https://github.com/wxops-idp/wxops-portal
 sources:
   - https://github.com/wxops-idp/wxops-portal

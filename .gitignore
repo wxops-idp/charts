@@ -4,3 +4,7 @@
 
 # Written by the release workflow from CHANGELOG.md just before a chart is packaged.
 */RELEASE-NOTES.md
+
+# Python bytecode from running the repository scripts and their tests.
+__pycache__/
+*.pyc

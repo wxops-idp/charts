@@ -62,22 +62,30 @@ jobs:
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "Portal version: ${version}"
 
-      # The portal tags its image v<version> right after the release, so a release can exist a few minutes before its
-      # image does. Deploying a chart that points at a missing image would be worse than waiting for tomorrow's run.
-      - name: Check that the image is published
+      # Looks up the image in the registry instead of assuming how it is tagged. The portal publishes v<version> today
+      # (v0.5.2, with the v). Trying both forms means a change of tag scheme there cannot make the chart pull an image
+      # that does not exist. The tag that is found becomes the chart's appVersion exactly as it is, and the chart pulls
+      # <repository>:<appVersion>.
+      # A release can also exist a few minutes before its image does, then this run waits for the next one.
+      - name: Find the image tag
         id: image
         env:
           VERSION: ${{ steps.portal.outputs.version }}
         run: |
           token="$(curl -fsS "https://ghcr.io/token?service=ghcr.io&scope=repository:${PORTAL_IMAGE}:pull" | jq -r .token)"
-          code="$(curl -s -o /dev/null -w '%{http_code}' \
-            -H "Authorization: Bearer ${token}" \
-            -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json' \
-            "https://ghcr.io/v2/${PORTAL_IMAGE}/manifests/v${VERSION}")"
-          if [[ "$code" != "200" ]]; then
-            echo "::warning::ghcr.io/${PORTAL_IMAGE}:v${VERSION} is not published yet (HTTP ${code}), skipping this run"
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          fi
+          for candidate in "v${VERSION}" "${VERSION}"; do
+            code="$(curl -s -o /dev/null -w '%{http_code}' \
+              -H "Authorization: Bearer ${token}" \
+              -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json' \
+              "https://ghcr.io/v2/${PORTAL_IMAGE}/manifests/${candidate}")"
+            if [[ "$code" == "200" ]]; then
+              echo "tag=${candidate}" >> "$GITHUB_OUTPUT"
+              echo "Image: ghcr.io/${PORTAL_IMAGE}:${candidate}"
+              exit 0
+            fi
+          done
+          echo "::warning::Neither ghcr.io/${PORTAL_IMAGE}:v${VERSION} nor :${VERSION} is published yet, skipping this run"
+          echo "skip=true" >> "$GITHUB_OUTPUT"
 
       - name: Set up helm-docs
         if: steps.image.outputs.skip != 'true'
@@ -88,9 +96,10 @@ jobs:
         if: steps.image.outputs.skip != 'true'
         env:
           VERSION: ${{ steps.portal.outputs.version }}
+          IMAGE_TAG: ${{ steps.image.outputs.tag }}
         run: |
           set +e
-          python3 .github/scripts/bump_app_version.py "$CHART" "$VERSION" \
+          python3 .github/scripts/bump_app_version.py "$CHART" "$IMAGE_TAG" \
             --release-url "https://github.com/${PORTAL_REPO}/releases/tag/v${VERSION}" > "$RUNNER_TEMP/bump.out"
           status=$?
           set -e
@@ -114,6 +123,7 @@ jobs:
           VERSION: ${{ steps.portal.outputs.version }}
           OLD_VERSION: ${{ steps.bump.outputs.old_app_version }}
           CHART_VERSION: ${{ steps.bump.outputs.chart_version }}
+          APP_VERSION: ${{ steps.bump.outputs.app_version }}
         run: |
           branch="bot/${CHART}-${VERSION}"
           if git ls-remote --exit-code --heads origin "$branch" > /dev/null; then
@@ -130,7 +140,7 @@ jobs:
 
           gh pr create --base main --head "$branch" \
             --title "chore(${CHART}): deploy W'xOps Portal ${VERSION}" \
-            --body "Deploys W'xOps Portal **${VERSION}** (was ${OLD_VERSION}) as chart **${CHART_VERSION}**. Opened by the Bump W'xOps Portal workflow.
+            --body "Deploys W'xOps Portal **${VERSION}** (was ${OLD_VERSION}) as chart **${CHART_VERSION}**, pulling \`ghcr.io/${PORTAL_IMAGE}:${APP_VERSION}\`, an image tag the workflow confirmed exists in the registry. \`appVersion\` is that exact tag, so the image follows it. Opened by the Bump W'xOps Portal workflow.
 
           Before merging:
           - [ ] Read the [portal release notes](https://github.com/${PORTAL_REPO}/releases/tag/v${VERSION}) for new or renamed settings, and update \`values.yaml\`, the tests and the README if the chart needs them.

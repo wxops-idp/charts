@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-"""Point a chart at a newer application release: bump `appVersion`, bump the chart `version`, add a changelog entry.
+"""Point a chart at a newer application release: set `appVersion`, bump the chart `version`, add a changelog entry.
 
 Used by .github/workflows/bump-portal.yaml, which opens a pull request with the result. A person still reviews and
 merges it, and chart-releaser then publishes the new chart version.
 
 Usage:
     bump_app_version.py <chart> <app-version> [--bump patch|minor] [--release-url URL] [--date YYYY-MM-DD]
+
+`<app-version>` is written to `appVersion` exactly as given. For the portal it is the tag of the image in the registry
+(v0.5.3, with the v), because the chart pulls `image: <repository>:<appVersion>`. The workflow passes a tag it has just
+confirmed exists. A leading `v` is ignored only when comparing versions.
 
 Prints `chart_version=`, `old_app_version=` and `app_version=` lines, ready to append to $GITHUB_OUTPUT.
 
@@ -24,9 +28,15 @@ changelog = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(changelog)
 
 NOTHING_TO_DO = 10
-STABLE_RE = re.compile(r"^\d+\.\d+\.\d+$")
+STABLE_RE = re.compile(r"^v?\d+\.\d+\.\d+$")
 APP_VERSION_RE = re.compile(r"^(appVersion:\s*)([\"']?)([^\"'\s#]+)([\"']?)(.*)$", re.MULTILINE)
 VERSION_RE = re.compile(r"^(version:\s*)([\"']?)(\d+)\.(\d+)\.(\d+)([\"']?)(.*)$", re.MULTILINE)
+TAG_LINE_RE = re.compile(r"^(  tag:\s*)([\"']?)([^\"'\s#]*)([\"']?)(.*)$")
+
+
+def semver(value: str) -> tuple:
+    """Sort key of a version that may carry a leading v."""
+    return changelog.version_key(value.removeprefix("v"))
 
 
 def bump_chart_version(chart_yaml: str, how: str) -> tuple:
@@ -46,6 +56,22 @@ def set_app_version(chart_yaml: str, new: str) -> tuple:
         raise changelog.ChangelogError("Chart.yaml has no top-level `appVersion`")
     line = f"{match[1]}{match[2]}{new}{match[4]}{match[5]}"
     return chart_yaml[: match.start()] + line + chart_yaml[match.end():], match[3]
+
+
+def pinned_image_tag(values: str) -> str:
+    """The value of `image.tag` in values.yaml text, or "" when it is empty or absent. Only the top-level `image:` is read."""
+    inside = False
+    for line in values.split("\n"):
+        if re.match(r"^image:\s*(#.*)?$", line):
+            inside = True
+            continue
+        if inside and line and not line.startswith((" ", "#")):
+            return ""
+        if inside:
+            match = TAG_LINE_RE.match(line)
+            if match:
+                return match[3]
+    return ""
 
 
 def add_changelog_entry(text: str, chart: str, chart_version: str, old: str, new: str, release_url: str, day: str) -> str:
@@ -69,26 +95,32 @@ def main(argv: list) -> int:
     parser.add_argument("--date", default=datetime.now(timezone.utc).strftime("%Y-%m-%d"))
     args = parser.parse_args(argv)
 
-    new = args.app_version.removeprefix("v")
+    new = args.app_version
     try:
         if not STABLE_RE.match(new):
-            raise changelog.ChangelogError(f"`{new}` is not a stable MAJOR.MINOR.PATCH version")
+            raise changelog.ChangelogError(f"`{new}` is not a stable version, expected MAJOR.MINOR.PATCH with an optional leading v")
         chart_dir = changelog.ROOT / args.chart
         chart_file = chart_dir / "Chart.yaml"
         if not chart_file.exists():
             raise changelog.ChangelogError(f"`{args.chart}` is not a chart (no {args.chart}/Chart.yaml)")
 
         current = changelog.chart_field(chart_dir, "appVersion")
-        if STABLE_RE.match(current) and changelog.version_key(new) <= changelog.version_key(current):
+        if STABLE_RE.match(current) and semver(new) <= semver(current):
             print(f"{args.chart} already deploys {current}, nothing to do for {new}")
             return NOTHING_TO_DO
+
+        values_file = chart_dir / "values.yaml"
+        pinned = pinned_image_tag(values_file.read_text()) if values_file.exists() else ""
+        if pinned:
+            raise changelog.ChangelogError(
+                f"{args.chart}/values.yaml pins image.tag to `{pinned}`, so changing appVersion would not change the image. "
+                "Clear it, the image follows appVersion"
+            )
 
         chart_yaml, old = set_app_version(chart_file.read_text(), new)
         chart_yaml, chart_version = bump_chart_version(chart_yaml, args.bump)
         log_file = chart_dir / "CHANGELOG.md"
-        log = add_changelog_entry(
-            log_file.read_text(), args.chart, chart_version, old, new, args.release_url, args.date
-        )
+        log = add_changelog_entry(log_file.read_text(), args.chart, chart_version, old, new, args.release_url, args.date)
         chart_file.write_text(chart_yaml)
         log_file.write_text(log)
         changelog.validate(chart_dir)
