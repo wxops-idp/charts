@@ -110,6 +110,31 @@ entries:
     version: 0.1.0
   wxops-portal:
   - apiVersion: v2
+    appVersion: v0.5.2
+    created: "2026-10-19T04:03:26.090474574Z"
+    description: A Helm chart for the W'xOps Portal, an Internal Developer Portal
+      for Kubernetes-native platform teams, with secrets from External Secrets Operator
+      and a Traefik IngressRoute.
+    digest: 58b63b412ff23e9f7a0324555dd1b80a81cf135f41182fbb72fe49d645ec263b
+    home: https://github.com/wxops-idp/wxops-portal
+    keywords:
+    - wxops
+    - portal
+    - internal-developer-portal
+    - external-secrets
+    - traefik
+    maintainers:
+    - email: xeusnguyen@gmail.com
+      name: Xeus Nguyen
+      url: https://wiki.xeusnguyen.xyz
+    name: wxops-portal
+    sources:
+    - https://github.com/wxops-idp/wxops-portal
+    type: application
+    urls:
+    - https://github.com/wxops-idp/charts/releases/download/wxops-portal-0.1.1/wxops-portal-0.1.1.tgz
+    version: 0.1.1
+  - apiVersion: v2
     appVersion: 0.5.2
     created: "2026-10-19T03:01:09.132772202Z"
     description: A Helm chart for the W'xOps Portal, an Internal Developer Portal
@@ -134,4 +159,4 @@ entries:
     urls:
     - https://github.com/wxops-idp/charts/releases/download/wxops-portal-0.1.0/wxops-portal-0.1.0.tgz
     version: 0.1.0
-generated: "2026-10-19T03:01:09.132782631Z"
+generated: "2026-10-19T04:03:26.090493058Z"
