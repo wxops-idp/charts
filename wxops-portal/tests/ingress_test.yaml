@@ -1,0 +1,146 @@
+suite: ingress and ingressroute
+templates:
+  - templates/ingress.yaml
+  - templates/ingressroute.yaml
+values:
+  - ../values-test.yaml
+tests:
+  # Traefik IngressRoute
+  - it: routes the host to the Service over plain HTTP by default
+    template: templates/ingressroute.yaml
+    release:
+      name: portal
+    asserts:
+      - isKind:
+          of: IngressRoute
+      - equal:
+          path: apiVersion
+          value: traefik.io/v1alpha1
+      - equal:
+          path: spec.entryPoints
+          value: [web]
+      - equal:
+          path: spec.routes[0].match
+          value: "Host(`portal.example.com`)"
+      - equal:
+          path: spec.routes[0].services[0].name
+          value: portal-wxops-portal
+      - equal:
+          path: spec.routes[0].services[0].port
+          value: 80
+      - notExists:
+          path: spec.tls
+
+  - it: takes an explicit rule, middlewares, entry points and TLS
+    template: templates/ingressroute.yaml
+    set:
+      ingressRoute.match: "Host(`portal.example.com`) && PathPrefix(`/`)"
+      ingressRoute.entryPoints: [websecure]
+      ingressRoute.middlewares:
+        - name: redirect
+          namespace: traefik
+      ingressRoute.tls:
+        secretName: portal-tls
+    asserts:
+      - equal:
+          path: spec.routes[0].match
+          value: "Host(`portal.example.com`) && PathPrefix(`/`)"
+      - equal:
+          path: spec.entryPoints
+          value: [websecure]
+      - equal:
+          path: spec.routes[0].middlewares[0].name
+          value: redirect
+      - equal:
+          path: spec.tls.secretName
+          value: portal-tls
+
+  - it: renders no IngressRoute when disabled
+    template: templates/ingressroute.yaml
+    set:
+      ingressRoute.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # Standard Ingress, for nginx, Kong and any other controller
+  - it: renders no Ingress by default
+    template: templates/ingress.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders an Ingress for the class, annotations, hosts and TLS
+    template: templates/ingress.yaml
+    release:
+      name: portal
+    set:
+      ingress.enabled: true
+      ingress.className: nginx
+      ingress.annotations:
+        nginx.ingress.kubernetes.io/proxy-body-size: 10m
+      ingress.hosts:
+        - host: portal.example.com
+      ingress.tls:
+        - secretName: portal-tls
+          hosts: [portal.example.com]
+    asserts:
+      - isKind:
+          of: Ingress
+      - equal:
+          path: spec.ingressClassName
+          value: nginx
+      - equal:
+          path: metadata.annotations["nginx.ingress.kubernetes.io/proxy-body-size"]
+          value: 10m
+      - equal:
+          path: spec.rules[0].host
+          value: portal.example.com
+      - equal:
+          path: spec.rules[0].http.paths[0].path
+          value: /
+      - equal:
+          path: spec.rules[0].http.paths[0].pathType
+          value: Prefix
+      - equal:
+          path: spec.rules[0].http.paths[0].backend.service.name
+          value: portal-wxops-portal
+      - equal:
+          path: spec.rules[0].http.paths[0].backend.service.port.number
+          value: 80
+      - equal:
+          path: spec.tls[0].secretName
+          value: portal-tls
+
+  - it: keeps the paths and path types it is given
+    template: templates/ingress.yaml
+    set:
+      ingress.enabled: true
+      ingress.className: kong
+      ingress.hosts:
+        - host: portal.example.com
+          paths:
+            - path: /
+              pathType: ImplementationSpecific
+            - path: /api
+              pathType: Prefix
+    asserts:
+      - equal:
+          path: spec.ingressClassName
+          value: kong
+      - equal:
+          path: spec.rules[0].http.paths[0].pathType
+          value: ImplementationSpecific
+      - equal:
+          path: spec.rules[0].http.paths[1].path
+          value: /api
+
+  - it: leaves ingressClassName out to use the cluster default
+    template: templates/ingress.yaml
+    set:
+      ingress.enabled: true
+      ingress.hosts:
+        - host: portal.example.com
+    asserts:
+      - notExists:
+          path: spec.ingressClassName

@@ -1,10 +1,6 @@
 # W'xOps Service and Resources Helm Charts
 
-[![Lint and Test Charts](https://github.com/wxops-idp/charts/actions/workflows/lint-test.yaml/badge.svg?branch=main)](https://github.com/wxops-idp/charts/actions/workflows/lint-test.yaml)
-[![Release Charts](https://github.com/wxops-idp/charts/actions/workflows/release.yaml/badge.svg?branch=main)](https://github.com/wxops-idp/charts/actions/workflows/release.yaml)
-[![Latest release](https://img.shields.io/github/v/release/wxops-idp/charts?include_prereleases&sort=semver)](https://github.com/wxops-idp/charts/releases)
-[![License](https://img.shields.io/github/license/wxops-idp/charts)](LICENSE)
-[![Helm](https://img.shields.io/badge/Helm-3-0F1689?logo=helm&logoColor=white)](https://helm.sh/)
+[![Lint and Test Charts](https://github.com/wxops-idp/charts/actions/workflows/lint-test.yaml/badge.svg?branch=main)](https://github.com/wxops-idp/charts/actions/workflows/lint-test.yaml) [![Release Charts](https://github.com/wxops-idp/charts/actions/workflows/release.yaml/badge.svg?branch=main)](https://github.com/wxops-idp/charts/actions/workflows/release.yaml) [![Latest release](https://img.shields.io/github/v/release/wxops-idp/charts?include_prereleases&sort=semver)](https://github.com/wxops-idp/charts/releases) [![License](https://img.shields.io/github/license/wxops-idp/charts)](LICENSE) [![Helm](https://img.shields.io/badge/Helm-3-0F1689?logo=helm&logoColor=white)](https://helm.sh/)
 
 Helm charts for the W'xOps identity stack: sign in to Kubernetes with Pinniped, and give the W'xOps ecosystem OIDC sign-in against your source control through Dex.
 
@@ -19,6 +15,7 @@ The current version of each chart, with what it does and where its documentation
 | --- | --- | --- | --- | --- | --- |
 | [`pinniped`](https://github.com/wxops-idp/charts/tree/main/pinniped) | Kubernetes authentication through the Pinniped Supervisor and Concierge, with Traefik, NGINX, Gateway API or LoadBalancer exposure and optional cert-manager TLS | 0.1.1 | v0.46.0 | 2026-10-16 | [README](https://github.com/wxops-idp/charts/blob/main/pinniped/README.md) · [Changelog](https://github.com/wxops-idp/charts/blob/main/pinniped/CHANGELOG.md) |
 | [`dexidp`](https://github.com/wxops-idp/charts/tree/main/dexidp) | A thin wrapper around the upstream Dex chart. External Secrets Operator builds Dex's `config.yaml` from a secret backend such as OpenBao, so connectors and clients change without a chart change | 0.1.1 | v2.45.1 | 2026-10-16 | [README](https://github.com/wxops-idp/charts/blob/main/dexidp/README.md) · [Changelog](https://github.com/wxops-idp/charts/blob/main/dexidp/CHANGELOG.md) |
+| [`wxops-portal`](https://github.com/wxops-idp/charts/tree/main/wxops-portal) | The W'xOps Portal, an internal developer portal for Kubernetes platform teams. Secrets come from External Secrets Operator, and it is exposed through a Traefik IngressRoute or any Ingress controller | 0.1.0 | 0.5.2 | 2026-10-19 | [README](https://github.com/wxops-idp/charts/blob/main/wxops-portal/README.md) · [Changelog](https://github.com/wxops-idp/charts/blob/main/wxops-portal/CHANGELOG.md) |
 <!-- charts:end -->
 
 Dex can be the identity provider behind Pinniped. See "Using Dex with Pinniped" in the [dexidp README](dexidp/README.md).

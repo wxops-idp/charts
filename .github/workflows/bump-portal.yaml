@@ -1,0 +1,143 @@
+name: Bump W'xOps Portal
+
+# Keeps the wxops-portal chart pointing at the latest portal release. It looks for a new release once a day and opens a
+# pull request, it never pushes to main or publishes anything itself. A person reviews the release notes for new
+# settings, merges, and chart-releaser publishes the new chart version.
+#
+# It pulls from the portal repository (public releases, no token) instead of the portal pushing here, so there is no
+# cross-repository secret to create or rotate.
+#
+# One-time repository setting: Settings > Actions > General > "Allow GitHub Actions to create and approve pull requests".
+on:
+  schedule:
+    - cron: "17 3 * * *"
+
+  # Run it by hand, optionally for one specific portal version.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Portal version to deploy, for example 0.5.3. Empty means the latest portal release."
+        required: false
+        type: string
+
+permissions:
+  contents: write        # push the bump branch
+  pull-requests: write   # open the pull request
+  actions: write         # start lint-test on that branch, see the last step
+
+concurrency:
+  group: bump-portal
+  cancel-in-progress: false
+
+env:
+  CHART: wxops-portal
+  PORTAL_REPO: wxops-idp/wxops-portal
+  PORTAL_IMAGE: wxops-idp/wxops-portal
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Find the portal version
+        id: portal
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          version="${INPUT_VERSION#v}"
+          if [[ -z "$version" ]]; then
+            tag="$(gh api "repos/${PORTAL_REPO}/releases/latest" --jq .tag_name)"
+            version="${tag#v}"
+          fi
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::'${version}' is not a stable MAJOR.MINOR.PATCH version"
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "Portal version: ${version}"
+
+      # The portal tags its image v<version> right after the release, so a release can exist a few minutes before its
+      # image does. Deploying a chart that points at a missing image would be worse than waiting for tomorrow's run.
+      - name: Check that the image is published
+        id: image
+        env:
+          VERSION: ${{ steps.portal.outputs.version }}
+        run: |
+          token="$(curl -fsS "https://ghcr.io/token?service=ghcr.io&scope=repository:${PORTAL_IMAGE}:pull" | jq -r .token)"
+          code="$(curl -s -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer ${token}" \
+            -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json' \
+            "https://ghcr.io/v2/${PORTAL_IMAGE}/manifests/v${VERSION}")"
+          if [[ "$code" != "200" ]]; then
+            echo "::warning::ghcr.io/${PORTAL_IMAGE}:v${VERSION} is not published yet (HTTP ${code}), skipping this run"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up helm-docs
+        if: steps.image.outputs.skip != 'true'
+        uses: gabe565/setup-helm-docs-action@v1
+
+      - name: Bump the chart
+        id: bump
+        if: steps.image.outputs.skip != 'true'
+        env:
+          VERSION: ${{ steps.portal.outputs.version }}
+        run: |
+          set +e
+          python3 .github/scripts/bump_app_version.py "$CHART" "$VERSION" \
+            --release-url "https://github.com/${PORTAL_REPO}/releases/tag/v${VERSION}" > "$RUNNER_TEMP/bump.out"
+          status=$?
+          set -e
+          cat "$RUNNER_TEMP/bump.out"
+          if [[ $status -eq 10 ]]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          [[ $status -eq 0 ]] || exit "$status"
+          cat "$RUNNER_TEMP/bump.out" >> "$GITHUB_OUTPUT"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          # Regenerates the version table in README.md and fails if the changelog is not valid.
+          python3 .github/scripts/changelog.py sync
+          # The chart README shows the chart and app version in its badges, and lint-test checks it is up to date.
+          helm-docs --chart-search-root=. --template-files=README.md.gotmpl
+
+      - name: Open a pull request
+        if: steps.bump.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.portal.outputs.version }}
+          OLD_VERSION: ${{ steps.bump.outputs.old_app_version }}
+          CHART_VERSION: ${{ steps.bump.outputs.chart_version }}
+        run: |
+          branch="bot/${CHART}-${VERSION}"
+          if git ls-remote --exit-code --heads origin "$branch" > /dev/null; then
+            echo "Branch ${branch} already exists, a pull request is already open or was closed on purpose."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add "${CHART}/Chart.yaml" "${CHART}/CHANGELOG.md" "${CHART}/README.md" README.md
+          git commit -m "chore(${CHART}): deploy W'xOps Portal ${VERSION}"
+          git push origin "$branch"
+
+          gh pr create --base main --head "$branch" \
+            --title "chore(${CHART}): deploy W'xOps Portal ${VERSION}" \
+            --body "Deploys W'xOps Portal **${VERSION}** (was ${OLD_VERSION}) as chart **${CHART_VERSION}**. Opened by the Bump W'xOps Portal workflow.
+
+          Before merging:
+          - [ ] Read the [portal release notes](https://github.com/${PORTAL_REPO}/releases/tag/v${VERSION}) for new or renamed settings, and update \`values.yaml\`, the tests and the README if the chart needs them.
+          - [ ] Use a minor chart bump instead of a patch if the new portal needs a values change from users. Edit \`version\` in \`${CHART}/Chart.yaml\` and the changelog heading, then run \`python3 .github/scripts/changelog.py sync\`.
+
+          Merging publishes chart ${CHART_VERSION} to the chart repository."
+
+          # Events caused by GITHUB_TOKEN do not start other workflows, except workflow_dispatch. Without this the
+          # pull request would have no lint and test result.
+          gh workflow run lint-test.yaml --ref "$branch"

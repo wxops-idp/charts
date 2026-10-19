@@ -1,0 +1,15 @@
+# Baseline for the unit tests and `kubeconform`: the chart with its main features on.
+env:
+  FRONTEND_URL: "https://portal.example.com"
+  OIDC_ISSUER_URL: "https://supervisor.example.com"
+  OIDC_CLIENT_ID: "client.oauth.pinniped.dev-wxops-portal"
+  OIDC_REDIRECT_URI: "https://portal.example.com/auth/callback"
+
+externalSecret:
+  secretStoreRef:
+    name: wxops-openbao
+    kind: ClusterSecretStore
+
+ingressRoute:
+  enabled: true
+  host: portal.example.com

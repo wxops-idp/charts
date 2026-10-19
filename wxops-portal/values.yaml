@@ -1,0 +1,163 @@
+# -- Number of portal pods. The session cookie is encrypted with `SESSION_SECRET`, so every replica must get the same value, which a shared Secret already guarantees.
+replicaCount: 1
+
+image:
+  # -- Portal image. The portal repository publishes to GHCR under the wxops-idp organization.
+  repository: ghcr.io/wxops-idp/wxops-portal
+  # -- Image tag. Empty means `v<appVersion>`, which is how the portal tags its releases (`v0.5.2`, not `0.5.2`).
+  tag: ""
+  # -- Image pull policy.
+  pullPolicy: IfNotPresent
+
+# -- Image pull secrets, only needed for a private mirror. The published image is public.
+imagePullSecrets: []
+# -- Override the chart name used in resource names.
+nameOverride: ""
+# -- Override the full resource name.
+fullnameOverride: ""
+
+serviceAccount:
+  # -- Create a ServiceAccount for the portal.
+  create: true
+  # -- Name of the ServiceAccount. Defaults to the full name when empty.
+  name: ""
+  # -- Annotations on the ServiceAccount.
+  annotations: {}
+
+# -- Annotations on the portal pods.
+podAnnotations: {}
+# -- Extra labels on the portal pods.
+podLabels: {}
+# -- Pod security context. The portal image runs nginx on port 80 as root, so none is set. Tighten it only after testing with your image.
+podSecurityContext: {}
+# -- Container security context. See `podSecurityContext`.
+securityContext: {}
+
+# -- Resources for the portal container.
+resources:
+  requests:
+    cpu: 50m
+    memory: 256Mi
+  limits:
+    memory: 512Mi
+
+# -- Probes, using the portal's own health endpoints. The container exposes nginx on port 80, which proxies to the Go backend and Next.js.
+probes:
+  liveness:
+    httpGet:
+      path: /healthz
+      port: http
+    periodSeconds: 10
+    failureThreshold: 3
+  readiness:
+    httpGet:
+      path: /readyz
+      port: http
+    periodSeconds: 10
+    failureThreshold: 3
+
+# -- Node selector, tolerations and affinity for the portal pods.
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+service:
+  # -- Service type.
+  type: ClusterIP
+  # -- Service port. The container listens on port 80 (nginx).
+  port: 80
+  # -- Annotations on the Service.
+  annotations: {}
+
+# -- Non-secret configuration, passed to the container as environment variables with these exact names.
+# The four values below are required and the chart fails to render without them. Every variable the backend reads is
+# documented at https://github.com/wxops-idp/wxops-portal/blob/main/docs/getting-started/environment-variables.md
+env:
+  # -- Public URL of the portal. Must equal what the browser sends as Origin, it is used for CORS.
+  FRONTEND_URL: ""
+  # -- Issuer URL of the Pinniped Supervisor FederationDomain. The portal has no login of its own.
+  OIDC_ISSUER_URL: ""
+  # -- Name of the Pinniped OIDCClient, `client.oauth.pinniped.dev-<suffix>`.
+  OIDC_CLIENT_ID: ""
+  # -- OAuth2 redirect URI. Must match `redirectURIs` of the OIDCClient, normally `<FRONTEND_URL>/auth/callback`.
+  OIDC_REDIRECT_URI: ""
+  # -- Scopes, must match the OIDCClient. `pinniped:request-audience` is needed for the hub and spoke token exchange.
+  OIDC_SCOPES: "openid,groups,offline_access,username,pinniped:request-audience"
+
+# -- Extra environment variables as full `env` entries, for values that come from a field reference or another Secret.
+extraEnv: []
+# -- Extra `envFrom` sources, for example another Secret or a ConfigMap.
+extraEnvFrom: []
+
+externalSecret:
+  # -- Create an ExternalSecret that builds the portal's Secret from a secret store such as OpenBao. When false, set `existingSecret`.
+  enabled: true
+  # -- Name of the Secret that External Secrets Operator creates. Defaults to `<fullname>-secrets`.
+  secretName: ""
+  # -- How often External Secrets Operator re-reads the store.
+  refreshInterval: 1h
+  # -- API version of the ExternalSecret. Use `external-secrets.io/v1beta1` if your operator does not serve `v1` yet.
+  apiVersion: external-secrets.io/v1
+  secretStoreRef:
+    # -- Name of the SecretStore or ClusterSecretStore. Required when `externalSecret.enabled` is true.
+    name: ""
+    # -- Kind of the store: `SecretStore` or `ClusterSecretStore`.
+    kind: ClusterSecretStore
+  # -- Path of the secret in the store, relative to the store's mount. For OpenBao KV v2 this is the path below `data/`.
+  path: wxops/portal
+  # -- Secret keys to read from that path, as `<environment variable>: <property in the stored secret>`.
+  # Add any other secret the portal needs, for example `GITEA_TOKEN: gitea_token`.
+  # Set `properties: null` to extract the whole secret at `path` instead, whose keys must then already be environment variable names.
+  # (An empty `{}` does not work, Helm merges maps with these defaults, only `null` removes them.)
+  properties:
+    OIDC_CLIENT_SECRET: oidc_client_secret
+    SESSION_SECRET: session_secret
+  # -- Annotations on the ExternalSecret.
+  annotations: {}
+
+# -- Name of an existing Secret holding `OIDC_CLIENT_SECRET` and `SESSION_SECRET`, used when `externalSecret.enabled` is false.
+existingSecret: ""
+
+clusters:
+  # -- Create a ConfigMap with the static cluster registry and point `CLUSTERS_CONFIG_FILE` at it.
+  # The backend fails to start when `CLUSTERS_CONFIG_FILE` points to a file that does not exist, so this stays on unless
+  # you use cluster discovery from Kubernetes Secrets (`rbac.create`) or set `CLUSTERS_CONFIG` yourself.
+  enabled: true
+  # -- Content of `clusters.json`. An empty list is valid. Each cluster needs at least `api_server`, see backend/clusters.example.json in the portal repository.
+  config:
+    clusters: []
+
+rbac:
+  # -- Create a Role and RoleBinding that let the portal read Secrets, for discovery of spoke clusters from Secrets in its own namespace. Turn `clusters.enabled` off when you use it.
+  create: false
+
+ingress:
+  # -- Create a standard Kubernetes Ingress, for any controller that implements it (ingress-nginx, Kong, HAProxy, a cloud load balancer, and so on).
+  # Use it instead of `ingressRoute`, or alongside it when two controllers serve different entry points.
+  enabled: false
+  # -- IngressClass to use, for example `nginx` or `kong`. Empty uses the cluster default class.
+  className: ""
+  # -- Annotations on the Ingress, where controller-specific settings go, for example `konghq.com/strip-path` or `nginx.ingress.kubernetes.io/proxy-body-size`.
+  annotations: {}
+  # -- Hosts and paths to route, required when enabled. Each path defaults to `/` with `pathType: Prefix`. For example:
+  # `[{host: portal.example.com, paths: [{path: /, pathType: Prefix}]}]`
+  hosts: []
+  # -- TLS settings, for example `[{secretName: portal-tls, hosts: [portal.example.com]}]`. Must match `env.FRONTEND_URL` when it is https.
+  tls: []
+
+ingressRoute:
+  # -- Create a Traefik IngressRoute that sends HTTP requests to the portal.
+  enabled: false
+  # -- Hostname to route, required when enabled. Ignored when `match` is set.
+  host: ""
+  # -- Full Traefik rule. Defaults to Host(`<host>`).
+  match: ""
+  # -- Traefik entry points. `web` is plain HTTP, use `websecure` together with `tls` for HTTPS.
+  entryPoints:
+    - web
+  # -- Traefik Middleware resources to apply, in order, each as `{name: ..., namespace: ...}` (`namespace` is optional).
+  middlewares: []
+  # -- TLS settings of the route, rendered as is. Leave empty for plain HTTP, for example `{secretName: portal-tls}` or `{certResolver: letsencrypt}`.
+  tls: {}
+  # -- Annotations on the IngressRoute.
+  annotations: {}
