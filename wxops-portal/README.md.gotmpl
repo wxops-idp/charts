@@ -1,0 +1,140 @@
+{{ template "chart.header" . }}
+{{ template "chart.deprecationWarning" . }}
+
+{{ template "chart.badgesSection" . }}
+
+{{ template "chart.description" . }}
+
+See [CHANGELOG.md](./CHANGELOG.md) for release history.
+
+>[!NOTE]
+>This is a plain chart, not a wrapper. It deploys the [W'xOps Portal](https://github.com/wxops-idp/wxops-portal) container, pulls its secrets from a secret store through External Secrets Operator, and can be exposed through a Traefik `IngressRoute` or a standard `Ingress`. The chart version follows this repository, and `appVersion` is the portal release it deploys.
+
+## What you need first
+
+- **A Pinniped Supervisor** with an `OIDCClient` for the portal. The portal has no login of its own, see [Pinniped chart](../pinniped).
+- **External Secrets Operator and a secret store** holding the portal's two secrets, or an existing Kubernetes Secret instead.
+- **Traefik with its CRDs** if you use `ingressRoute`, or any ingress controller if you use `ingress`.
+
+## Secrets from External Secrets Operator
+
+The portal needs two secrets, `OIDC_CLIENT_SECRET` and `SESSION_SECRET`. The chart renders an `ExternalSecret` that reads them from one path in your store and creates the Secret the Deployment reads. Nothing secret lives in your values.
+
+```text
+OpenBao (KV v2)                  External Secrets Operator              Portal pod
+wxops/portal                                                            envFrom
+  oidc_client_secret  ──┐
+  session_secret      ──┼──▶  ExternalSecret  ──▶  Secret  ──────────▶  OIDC_CLIENT_SECRET
+                        │     (this chart)                              SESSION_SECRET
+```
+
+```bash
+bao kv put -mount=wxops portal oidc_client_secret="<secret from the OIDCClient>" session_secret="$(openssl rand -hex 32)"
+```
+
+`SESSION_SECRET` must be exactly 64 hex characters. The path and property names are values: `externalSecret.path` is the secret in the store, and `externalSecret.properties` maps each environment variable to a property in it. Add any other secret the portal reads, for example `GITEA_TOKEN: gitea_token`. Set `externalSecret.properties: null` to extract the whole secret at the path instead, when its keys already are the environment variable names.
+
+Without External Secrets Operator, set `externalSecret.enabled=false` and `existingSecret` to a Secret that has both keys.
+
+## Exposing the portal
+
+Both options are off by default. Set the public address in `env.FRONTEND_URL` and `env.OIDC_REDIRECT_URI` to match, because the portal uses them for CORS and for the login redirect.
+
+**Traefik `IngressRoute`** (plain HTTP by default):
+
+```yaml
+ingressRoute:
+  enabled: true
+  host: portal.example.com
+  # entryPoints: [websecure]
+  # tls: {secretName: portal-tls}
+```
+
+**Standard `Ingress`**, for ingress-nginx, Kong, HAProxy or any other controller. The class and the controller-specific settings are yours:
+
+```yaml
+ingress:
+  enabled: true
+  className: nginx          # or kong, haproxy, ...
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: 10m
+  hosts:
+    - host: portal.example.com
+  tls:
+    - secretName: portal-tls
+      hosts: [portal.example.com]
+```
+
+## Cluster registry
+
+The backend refuses to start when `CLUSTERS_CONFIG_FILE` points to a missing file, so the chart creates a ConfigMap from `clusters.config` and sets that variable. An empty list is valid. Add your spoke clusters there, see `backend/clusters.example.json` in the portal repository. To discover clusters from Kubernetes Secrets instead, set `clusters.enabled=false` and `rbac.create=true`.
+
+## Installing the Chart
+
+```bash
+helm repo add wxops https://charts.wxops.cloud
+helm install wxops-portal wxops/{{ template "chart.name" . }} -n wxops-system --create-namespace -f my-values.yaml
+```
+
+A minimal `my-values.yaml`:
+
+```yaml
+env:
+  FRONTEND_URL: https://portal.example.com
+  OIDC_ISSUER_URL: https://supervisor.example.com
+  OIDC_CLIENT_ID: client.oauth.pinniped.dev-wxops-portal
+  OIDC_REDIRECT_URI: https://portal.example.com/auth/callback
+
+externalSecret:
+  secretStoreRef:
+    name: wxops-openbao
+
+ingressRoute:
+  enabled: true
+  host: portal.example.com
+```
+
+The four `env` values and the secret store are required. A missing one fails the install with a message that names it.
+
+For local rendering and testing:
+
+```bash
+helm template wxops-portal . -f values-test.yaml
+helm lint . -f values-test.yaml
+helm unittest .
+```
+
+## Upgrading to the latest portal
+
+The chart's `appVersion` is the portal release it deploys, and the image tag is `v<appVersion>`. A scheduled workflow in this repository checks the portal's latest release every day and opens a pull request that bumps `appVersion`, the chart version and the changelog, so a new portal release reaches the chart repository after a person reviews and merges it. Install a newer chart version to get a newer portal, or set `image.tag` to pin another release. See the [CHANGELOG](./CHANGELOG.md) for which chart version carries which portal version.
+
+## Migrating from the chart in the portal repository
+
+The earlier chart was published to `oci://ghcr.io/wxops/wxops-portal/charts/wxops-portal` and was built on the `common` library chart. This one is standalone, so the values moved:
+
+| Earlier chart (`portal.` prefix) | This chart |
+| --- | --- |
+| `portal.env.*` | `env.*` |
+| `portal.image.*` | `image.*`, the default tag is now `v<appVersion>` |
+| `portal.ingress.*` | `ingress.*`, or `ingressRoute.*` for Traefik |
+| `portal.secretValues.*` with `extraManifests`, or `portal.envFrom` | `externalSecret.*`, or `existingSecret` |
+| `portal.rbac.create` | `rbac.create` |
+| `CLUSTERS_CONFIG_FILE` set, file not provided | `clusters.*`, the ConfigMap is created for you |
+
+## Not yet verified on a cluster
+
+The chart is linted, rendered and validated against the Kubernetes and CRD schemas, and its required parameters are covered by unit tests. These points still need a run on a real cluster:
+
+- The portal starts with the generated `clusters.json` and the Secret from a real External Secrets Operator.
+- The `IngressRoute` and the `Ingress` route login, the API and static assets correctly through your controller.
+- The probes on `/healthz` and `/readyz` pass on the published image.
+
+{{ template "chart.homepageLine" . }}
+
+{{ template "chart.maintainersSection" . }}
+
+{{ template "chart.sourcesSection" . }}
+
+{{ template "chart.requirementsSection" . }}
+
+{{ template "chart.valuesSection" . }}

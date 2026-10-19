@@ -1,0 +1,30 @@
+{{- if .Values.ingressRoute.enabled }}
+{{- $route := .Values.ingressRoute }}
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{ include "wxops-portal.fullname" . }}
+  labels:
+    {{- include "wxops-portal.labels" . | nindent 4 }}
+  {{- with $route.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  entryPoints:
+    {{- toYaml $route.entryPoints | nindent 4 }}
+  routes:
+    - kind: Rule
+      match: {{ default (printf "Host(`%s`)" $route.host) $route.match | quote }}
+      {{- with $route.middlewares }}
+      middlewares:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      services:
+        - name: {{ include "wxops-portal.fullname" . }}
+          port: {{ .Values.service.port }}
+  {{- with $route.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

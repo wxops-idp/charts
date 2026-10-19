@@ -1,0 +1,27 @@
+W'xOps Portal {{ .Chart.AppVersion }} is installed as {{ include "wxops-portal.fullname" . }}.
+
+{{- if .Values.externalSecret.enabled }}
+
+OIDC_CLIENT_SECRET and SESSION_SECRET come from "{{ .Values.externalSecret.path }}" in the store "{{ .Values.externalSecret.secretStoreRef.name }}".
+The pod stays pending until External Secrets Operator creates the Secret "{{ include "wxops-portal.secretName" . }}":
+  kubectl -n {{ .Release.Namespace }} describe externalsecret {{ include "wxops-portal.secretName" . }}
+{{- end }}
+{{- if .Values.ingressRoute.enabled }}
+
+Traefik IngressRoute: http://{{ .Values.ingressRoute.host | default "<your host>" }}  (entry points: {{ join ", " .Values.ingressRoute.entryPoints }})
+{{- end }}
+{{- if .Values.ingress.enabled }}
+
+Ingress{{ with .Values.ingress.className }} (class {{ . }}){{ end }}:
+{{- range .Values.ingress.hosts }}
+  {{ if $.Values.ingress.tls }}https{{ else }}http{{ end }}://{{ .host }}
+{{- end }}
+{{- end }}
+{{- if or .Values.ingressRoute.enabled .Values.ingress.enabled }}
+
+Make sure env.FRONTEND_URL and env.OIDC_REDIRECT_URI use the same public address.
+{{- else }}
+
+No IngressRoute or Ingress is created. Reach the portal in the cluster with:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "wxops-portal.fullname" . }} 8080:{{ .Values.service.port }}
+{{- end }}

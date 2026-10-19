@@ -150,6 +150,9 @@ jobs:
             echo "::endgroup::"
           done
 
+      - name: Test the repository scripts
+        run: python3 -m unittest discover -s .github/scripts -p 'test_*.py'
+
       # Every chart's current version needs a <chart>/CHANGELOG.md entry, and the chart table in the root README.md
       # must be the one generated from them. Same check as the pre-commit hook, for contributors who don't run it.
       - name: Check changelogs

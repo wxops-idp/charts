@@ -1,0 +1,161 @@
+# Expectations for the portal Deployment and its required parameters. A change that adds, removes or renames a
+# `fail` in templates/_helpers.tpl must change these tests in the same PR.
+suite: deployment
+templates:
+  - templates/deployment.yaml
+values:
+  - ../values-test.yaml
+# appVersion is pinned here, so the automatic portal version bump does not have to touch this test.
+chart:
+  appVersion: "1.2.3"
+tests:
+  - it: uses the v-prefixed tag the portal publishes, derived from appVersion
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/wxops-idp/wxops-portal:v1.2.3
+
+  - it: lets the image tag and repository be overridden
+    set:
+      image.repository: registry.example.com/portal
+      image.tag: v9.9.9
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: registry.example.com/portal:v9.9.9
+
+  - it: passes the required settings as environment variables
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OIDC_ISSUER_URL
+            value: "https://supervisor.example.com"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: FRONTEND_URL
+            value: "https://portal.example.com"
+
+  - it: reads the secrets from the Secret External Secrets Operator creates
+    release:
+      name: portal
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].envFrom[0].secretRef.name
+          value: portal-wxops-portal-secrets
+
+  - it: reads the secrets from an existing Secret when the ExternalSecret is off
+    set:
+      externalSecret.enabled: false
+      existingSecret: my-secret
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].envFrom[0].secretRef.name
+          value: my-secret
+
+  - it: mounts the cluster registry and points CLUSTERS_CONFIG_FILE at it
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CLUSTERS_CONFIG_FILE
+            value: /etc/wxops/clusters.json
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[0].mountPath
+          value: /etc/wxops
+
+  - it: leaves the cluster registry out when it is disabled, for discovery from Secrets
+    set:
+      clusters.enabled: false
+    asserts:
+      - notExists:
+          path: spec.template.spec.volumes
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CLUSTERS_CONFIG_FILE
+            value: /etc/wxops/clusters.json
+
+  - it: uses the portal health endpoints for the probes
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /healthz
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /readyz
+
+  # Required parameters: each one fails the render with a message that names what to set.
+  - it: fails without env.FRONTEND_URL
+    set:
+      env.FRONTEND_URL: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: "env.FRONTEND_URL is required: set it under `env` in your values"
+
+  - it: fails without env.OIDC_ISSUER_URL
+    set:
+      env.OIDC_ISSUER_URL: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: "env.OIDC_ISSUER_URL is required: set it under `env` in your values"
+
+  - it: fails without env.OIDC_CLIENT_ID
+    set:
+      env.OIDC_CLIENT_ID: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: "env.OIDC_CLIENT_ID is required: set it under `env` in your values"
+
+  - it: fails without env.OIDC_REDIRECT_URI
+    set:
+      env.OIDC_REDIRECT_URI: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: "env.OIDC_REDIRECT_URI is required: set it under `env` in your values"
+
+  - it: fails when the ExternalSecret has no secret store
+    set:
+      externalSecret.secretStoreRef.name: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: "externalSecret.secretStoreRef.name is required when externalSecret.enabled is true"
+
+  - it: fails when the ExternalSecret has no path
+    set:
+      externalSecret.path: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: "externalSecret.path is required when externalSecret.enabled is true"
+
+  - it: fails when there is no source for the secrets
+    set:
+      externalSecret.enabled: false
+    asserts:
+      - failedTemplate:
+          errorMessage: "set externalSecret.enabled=true, or existingSecret to a Secret holding OIDC_CLIENT_SECRET and SESSION_SECRET"
+
+  - it: fails when the IngressRoute has neither host nor match
+    set:
+      ingressRoute.host: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: "ingressRoute.host (or ingressRoute.match) is required when ingressRoute.enabled is true"
+
+  - it: fails when the Ingress has no hosts
+    set:
+      ingress.enabled: true
+    asserts:
+      - failedTemplate:
+          errorMessage: "ingress.hosts is required when ingress.enabled is true, for example [{host: portal.example.com}]"
+
+  - it: fails when an Ingress host entry has no host
+    set:
+      ingress.enabled: true
+      ingress.hosts:
+        - paths:
+            - path: /
+    asserts:
+      - failedTemplate:
+          errorMessage: "ingress.hosts[0].host is required"
