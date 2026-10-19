@@ -108,4 +108,30 @@ entries:
     urls:
     - https://github.com/wxops-idp/charts/releases/download/pinniped-0.1.0/pinniped-0.1.0.tgz
     version: 0.1.0
-generated: "2026-10-16T02:10:22.409824334Z"
+  wxops-portal:
+  - apiVersion: v2
+    appVersion: 0.5.2
+    created: "2026-10-19T03:01:09.132772202Z"
+    description: A Helm chart for the W'xOps Portal, an Internal Developer Portal
+      for Kubernetes-native platform teams, with secrets from External Secrets Operator
+      and a Traefik IngressRoute.
+    digest: 801e46ef6e768b9e6638a11167b7367e402a25676ce4e6408a0ae377eadd4c23
+    home: https://github.com/wxops-idp/wxops-portal
+    keywords:
+    - wxops
+    - portal
+    - internal-developer-portal
+    - external-secrets
+    - traefik
+    maintainers:
+    - email: xeusnguyen@gmail.com
+      name: Xeus Nguyen
+      url: https://wiki.xeusnguyen.xyz
+    name: wxops-portal
+    sources:
+    - https://github.com/wxops-idp/wxops-portal
+    type: application
+    urls:
+    - https://github.com/wxops-idp/charts/releases/download/wxops-portal-0.1.0/wxops-portal-0.1.0.tgz
+    version: 0.1.0
+generated: "2026-10-19T03:01:09.132782631Z"
