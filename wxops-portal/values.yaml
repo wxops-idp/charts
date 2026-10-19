@@ -4,7 +4,8 @@ replicaCount: 1
 image:
   # -- Portal image. The portal repository publishes to GHCR under the wxops-idp organization.
   repository: ghcr.io/wxops-idp/wxops-portal
-  # -- Image tag. Empty means `v<appVersion>`, which is how the portal tags its releases (`v0.5.2`, not `0.5.2`).
+  # -- Image tag. Empty uses the chart's `appVersion` as it is, which is the exact tag in the registry (`v0.5.2`, with the `v`), so the image follows the chart version.
+  # Set it only to pin a different release.
   tag: ""
   # -- Image pull policy.
   pullPolicy: IfNotPresent

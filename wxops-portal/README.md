@@ -1,6 +1,6 @@
 # wxops-portal
 
-![Version: 0.1.0](https://img.shields.io/badge/Version-0.1.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.5.2](https://img.shields.io/badge/AppVersion-0.5.2-informational?style=flat-square)
+![Version: 0.1.1](https://img.shields.io/badge/Version-0.1.1-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: v0.5.2](https://img.shields.io/badge/AppVersion-v0.5.2-informational?style=flat-square)
 
 A Helm chart for the W'xOps Portal, an Internal Developer Portal for Kubernetes-native platform teams, with secrets from External Secrets Operator and a Traefik IngressRoute.
 
@@ -105,7 +105,7 @@ helm unittest .
 
 ## Upgrading to the latest portal
 
-The chart's `appVersion` is the portal release it deploys, and the image tag is `v<appVersion>`. A scheduled workflow in this repository checks the portal's latest release every day and opens a pull request that bumps `appVersion`, the chart version and the changelog, so a new portal release reaches the chart repository after a person reviews and merges it. Install a newer chart version to get a newer portal, or set `image.tag` to pin another release. See the [CHANGELOG](./CHANGELOG.md) for which chart version carries which portal version.
+The chart's `appVersion` is the portal release it deploys, written as the exact image tag in the registry (`v0.5.2`, with the `v`), and the image is `<image.repository>:<appVersion>`, so the two cannot disagree. A scheduled workflow in this repository checks the portal's latest release every day and opens a pull request that sets `appVersion` to a tag it has confirmed exists, together with the chart version and the changelog, so a new portal release reaches the chart repository after a person reviews and merges it. Install a newer chart version to get a newer portal, or set `image.tag` to pin another release.
 
 ## Migrating from the chart in the portal repository
 
@@ -114,7 +114,7 @@ The earlier chart was published to `oci://ghcr.io/wxops/wxops-portal/charts/wxop
 | Earlier chart (`portal.` prefix) | This chart |
 | --- | --- |
 | `portal.env.*` | `env.*` |
-| `portal.image.*` | `image.*`, the default tag is now `v<appVersion>` |
+| `portal.image.*` | `image.*`, the tag defaults to the chart's `appVersion`, the exact registry tag (`v0.5.2`) |
 | `portal.ingress.*` | `ingress.*`, or `ingressRoute.*` for Traefik |
 | `portal.secretValues.*` with `extraManifests`, or `portal.envFrom` | `externalSecret.*`, or `existingSecret` |
 | `portal.rbac.create` | `rbac.create` |
@@ -168,7 +168,7 @@ The chart is linted, rendered and validated against the Kubernetes and CRD schem
 | fullnameOverride | string | `""` | Override the full resource name. |
 | image.pullPolicy | string | `"IfNotPresent"` | Image pull policy. |
 | image.repository | string | `"ghcr.io/wxops-idp/wxops-portal"` | Portal image. The portal repository publishes to GHCR under the wxops-idp organization. |
-| image.tag | string | `""` | Image tag. Empty means `v<appVersion>`, which is how the portal tags its releases (`v0.5.2`, not `0.5.2`). |
+| image.tag | string | `""` | Image tag. Empty uses the chart's `appVersion` as it is, which is the exact tag in the registry (`v0.5.2`, with the `v`), so the image follows the chart version. Set it only to pin a different release. |
 | imagePullSecrets | list | `[]` | Image pull secrets, only needed for a private mirror. The published image is public. |
 | ingress.annotations | object | `{}` | Annotations on the Ingress, where controller-specific settings go, for example `konghq.com/strip-path` or `nginx.ingress.kubernetes.io/proxy-body-size`. |
 | ingress.className | string | `""` | IngressClass to use, for example `nginx` or `kong`. Empty uses the cluster default class. |

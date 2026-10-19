@@ -5,24 +5,40 @@ templates:
   - templates/deployment.yaml
 values:
   - ../values-test.yaml
-# appVersion is pinned here, so the automatic portal version bump does not have to touch this test.
+# appVersion is pinned here, so the automatic portal version bump does not have to touch these tests.
+# In the real chart it is the exact tag in the registry, the portal publishes v0.5.2 (with the v).
 chart:
-  appVersion: "1.2.3"
+  appVersion: "v1.2.3"
 tests:
-  - it: uses the v-prefixed tag the portal publishes, derived from appVersion
+  - it: pulls the image tagged with appVersion exactly as it is, no prefix is added or removed
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
           value: ghcr.io/wxops-idp/wxops-portal:v1.2.3
 
-  - it: lets the image tag and repository be overridden
+  - it: pulls image.tag instead when it is set
     set:
-      image.repository: registry.example.com/portal
       image.tag: v9.9.9
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
-          value: registry.example.com/portal:v9.9.9
+          value: ghcr.io/wxops-idp/wxops-portal:v9.9.9
+
+  - it: does not rewrite an image.tag without the v either
+    set:
+      image.tag: 9.9.9
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/wxops-idp/wxops-portal:9.9.9
+
+  - it: lets the image repository be overridden
+    set:
+      image.repository: registry.example.com/portal
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: registry.example.com/portal:v1.2.3
 
   - it: passes the required settings as environment variables
     asserts:

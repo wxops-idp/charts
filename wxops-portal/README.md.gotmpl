@@ -106,7 +106,7 @@ helm unittest .
 
 ## Upgrading to the latest portal
 
-The chart's `appVersion` is the portal release it deploys, and the image tag is `v<appVersion>`. A scheduled workflow in this repository checks the portal's latest release every day and opens a pull request that bumps `appVersion`, the chart version and the changelog, so a new portal release reaches the chart repository after a person reviews and merges it. Install a newer chart version to get a newer portal, or set `image.tag` to pin another release. See the [CHANGELOG](./CHANGELOG.md) for which chart version carries which portal version.
+The chart's `appVersion` is the portal release it deploys, written as the exact image tag in the registry (`v0.5.2`, with the `v`), and the image is `<image.repository>:<appVersion>`, so the two cannot disagree. A scheduled workflow in this repository checks the portal's latest release every day and opens a pull request that sets `appVersion` to a tag it has confirmed exists, together with the chart version and the changelog, so a new portal release reaches the chart repository after a person reviews and merges it. Install a newer chart version to get a newer portal, or set `image.tag` to pin another release.
 
 ## Migrating from the chart in the portal repository
 
@@ -115,7 +115,7 @@ The earlier chart was published to `oci://ghcr.io/wxops/wxops-portal/charts/wxop
 | Earlier chart (`portal.` prefix) | This chart |
 | --- | --- |
 | `portal.env.*` | `env.*` |
-| `portal.image.*` | `image.*`, the default tag is now `v<appVersion>` |
+| `portal.image.*` | `image.*`, the tag defaults to the chart's `appVersion`, the exact registry tag (`v0.5.2`) |
 | `portal.ingress.*` | `ingress.*`, or `ingressRoute.*` for Traefik |
 | `portal.secretValues.*` with `extraManifests`, or `portal.envFrom` | `externalSecret.*`, or `existingSecret` |
 | `portal.rbac.create` | `rbac.create` |

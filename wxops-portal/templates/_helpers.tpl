@@ -47,10 +47,11 @@ app.kubernetes.io/part-of: wxops-portal
 {{- end }}
 
 {{/*
-Image reference. The portal tags its images with a leading v (v0.5.2), so the default tag is v<appVersion>.
+Image reference. appVersion in Chart.yaml is the exact tag in the registry (the portal publishes v0.5.2, with the v),
+so it is used as it is. image.tag only overrides it.
 */}}
 {{- define "wxops-portal.image" -}}
-{{- printf "%s:%s" .Values.image.repository (default (printf "v%s" .Chart.AppVersion) .Values.image.tag) }}
+{{- printf "%s:%s" .Values.image.repository (default .Chart.AppVersion .Values.image.tag) }}
 {{- end }}
 
 {{/*
