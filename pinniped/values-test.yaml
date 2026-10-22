@@ -1,6 +1,3 @@
-# -- Install Pinniped CRDs as part of this chart render.
-installCRDs: true
-
 # -- Global namespace settings for Pinniped components.
 namespace:
   # -- Create the component namespaces (`<name>-concierge` and `<name>-supervisor`).
@@ -202,21 +199,21 @@ concierge:
           # -- Private key size for the Concierge certificate.
           size: 2048
 
-  # -- Concierge exposure settings for Traefik, NGINX passthrough, or Gateway API.
+  # -- Concierge ingress settings for Traefik or NGINX passthrough.
   ingress:
-    # -- Enable ingress or gateway-based exposure for Concierge.
+    # -- Enable ingress exposure (Traefik or NGINX) for Concierge.
     enabled: true
-    # -- Exposure provider (`traefik`, `nginx`, or `gateway-api`).
+    # -- Exposure provider (`traefik` or `nginx`).
     provider: traefik
-    # -- Additional annotations applied to Concierge ingress or gateway resources.
+    # -- Additional annotations applied to the Concierge ingress resources.
     annotations: {}
     # -- Primary hostname used by Concierge passthrough exposure.
     hostname: "pinniped-concierge.pinniped-concierge.svc.cluster.local"
-    # -- Backend service override used by ingress or gateway routes.
+    # -- Backend service override used by the ingress.
     service:
-      # -- Explicit service name used as the ingress or gateway backend.
+      # -- Explicit service name used as the ingress backend.
       name: ""
-      # -- Service port used as the ingress or gateway backend.
+      # -- Service port used as the ingress backend.
       port: 443
     # -- Traefik `IngressRouteTCP` settings.
     traefik:
@@ -241,26 +238,33 @@ concierge:
       pathType: Prefix
       # -- TLS secret name for SSL. Typically the cert-manager-managed secret name.
       tlsSecretName: ""
-    # -- Gateway API route settings for Concierge.
-    gatewayAPI:
-      # -- Enable Gateway API route rendering for Concierge.
-      enabled: false
-      # -- API version used for the Gateway API route.
-      apiVersion: gateway.networking.k8s.io/v1beta1
-      # -- Gateway API route kind (`TLSRoute` or `TCPRoute`).
-      routeKind: TLSRoute
-      # -- Override the generated Gateway API route name.
-      routeName: ""
-      # -- Hostnames attached to the Gateway API route.
-      hostnames: []
-      # -- Parent references attached to the Gateway API route.
-      parentRefs: []
-      # -- Reserved field for future section name convenience helpers.
-      sectionName: ""
-    # -- Legacy L7 ingress hosts list retained for backward compatibility.
-    hosts: []
-    # -- Legacy L7 ingress TLS list retained for backward compatibility.
-    tls: []
+
+  # -- Gateway API route for Concierge. It is separate from `ingress`: enable one, the other, or both. The route is a
+  # `TLSRoute` (SNI passthrough) or a `TCPRoute`, so the Gateway needs a TLS passthrough or TCP listener.
+  gatewayAPI:
+    # -- Render the Gateway API route for Concierge. `null` inherits `global.gatewayAPI.enabled`.
+    enabled: ~
+    # -- API version of the route. Empty picks one for the kind: `gateway.networking.k8s.io/v1` for a `TLSRoute`,
+    # `gateway.networking.k8s.io/v1alpha2` for a `TCPRoute`. Set it to match the Gateway API CRDs you installed.
+    apiVersion: ""
+    # -- Route kind: `TLSRoute` (matches the SNI hostnames) or `TCPRoute` (plain TCP, no hostnames).
+    routeKind: TLSRoute
+    # -- Override the generated route name.
+    routeName: ""
+    # -- Additional annotations on the route.
+    annotations: {}
+    # -- Hostname of a `TLSRoute`. Empty uses the `ingress` hostname, which is `<ingress.hostPrefix>.<global.domain>` when unset.
+    hostname: ""
+    # -- Several hostnames for a `TLSRoute`. Wins over `hostname`.
+    hostnames: []
+    # -- Gateways the route attaches to. Empty inherits `global.gatewayAPI.parentRefs`. One is required.
+    parentRefs: []
+    # -- Backend of the route. It does not follow `ingress.service`.
+    service:
+      # -- Explicit backend service name. Empty uses the same service the ingress would.
+      name: ""
+      # -- Backend service port.
+      port: 443
 
   # -- JWTAuthenticator that validates tokens issued by a Pinniped Supervisor FederationDomain.
   jwtAuthenticator:
@@ -457,21 +461,21 @@ supervisor:
         # -- Optional source ranges allowed to reach the Supervisor LoadBalancer service.
         loadBalancerSourceRanges: []
 
-  # -- Supervisor exposure settings for Traefik, NGINX passthrough, or Gateway API.
+  # -- Supervisor ingress settings for Traefik or NGINX passthrough.
   ingress:
-    # -- Enable ingress or gateway-based exposure for Supervisor.
+    # -- Enable ingress exposure (Traefik or NGINX) for Supervisor.
     enabled: true
-    # -- Exposure provider (`traefik`, `nginx`, or `gateway-api`).
+    # -- Exposure provider (`traefik` or `nginx`).
     provider: traefik
-    # -- Additional annotations applied to Supervisor ingress or gateway resources.
+    # -- Additional annotations applied to the Supervisor ingress resources.
     annotations: {}
     # -- Primary hostname used by Supervisor passthrough exposure.
     hostname: "pinniped-supervisor-clusterip.pinniped-supervisor.svc.cluster.local"
-    # -- Backend service override used by ingress or gateway routes.
+    # -- Backend service override used by the ingress.
     service:
-      # -- Explicit service name used as the ingress or gateway backend.
+      # -- Explicit service name used as the ingress backend.
       name: ""
-      # -- Service port used as the ingress or gateway backend.
+      # -- Service port used as the ingress backend.
       port: 443
     # -- Traefik `IngressRouteTCP` settings.
     traefik:
@@ -496,22 +500,33 @@ supervisor:
       pathType: Prefix
       # -- TLS secret name for SSL. Typically the cert-manager-managed secret name.
       tlsSecretName: ""
-    # -- Gateway API route settings for Supervisor.
-    gatewayAPI:
-      # -- Enable Gateway API route rendering for Supervisor.
-      enabled: false
-      # -- API version used for the Gateway API route.
-      apiVersion: gateway.networking.k8s.io/v1beta1
-      # -- Gateway API route kind (`TLSRoute` or `TCPRoute`).
-      routeKind: TLSRoute
-      # -- Override the generated Gateway API route name.
-      routeName: ""
-      # -- Hostnames attached to the Gateway API route.
-      hostnames: []
-      # -- Parent references attached to the Gateway API route.
-      parentRefs: []
-      # -- Reserved field for future section name convenience helpers.
-      sectionName: ""
+
+  # -- Gateway API route for Supervisor. It is separate from `ingress`: enable one, the other, or both. The route is a
+  # `TLSRoute` (SNI passthrough) or a `TCPRoute`, so the Gateway needs a TLS passthrough or TCP listener.
+  gatewayAPI:
+    # -- Render the Gateway API route for Supervisor. `null` inherits `global.gatewayAPI.enabled`.
+    enabled: ~
+    # -- API version of the route. Empty picks one for the kind: `gateway.networking.k8s.io/v1` for a `TLSRoute`,
+    # `gateway.networking.k8s.io/v1alpha2` for a `TCPRoute`. Set it to match the Gateway API CRDs you installed.
+    apiVersion: ""
+    # -- Route kind: `TLSRoute` (matches the SNI hostnames) or `TCPRoute` (plain TCP, no hostnames).
+    routeKind: TLSRoute
+    # -- Override the generated route name.
+    routeName: ""
+    # -- Additional annotations on the route.
+    annotations: {}
+    # -- Hostname of a `TLSRoute`. Empty uses the `ingress` hostname, which is `<ingress.hostPrefix>.<global.domain>` when unset.
+    hostname: ""
+    # -- Several hostnames for a `TLSRoute`. Wins over `hostname`.
+    hostnames: []
+    # -- Gateways the route attaches to. Empty inherits `global.gatewayAPI.parentRefs`. One is required.
+    parentRefs: []
+    # -- Backend of the route. It does not follow `ingress.service`.
+    service:
+      # -- Explicit backend service name. Empty uses the same service the ingress would.
+      name: ""
+      # -- Backend service port.
+      port: 443
 
   # -- FederationDomain configures the Supervisor as an OIDC issuer for downstream clusters.
   federationDomain:

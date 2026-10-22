@@ -6,8 +6,54 @@
 {{ template "chart.description" . }}
 
 >[!NOTE]
->This chart bootstraps the Pinniped Concierge and Supervisor server-side resources on Kubernetes. CRDs can be managed by this chart using `installCRDs=true`. Set `installCRDs=false` when CRDs are installed separately or managed outside Helm.
+>This chart bootstraps the Pinniped Concierge and Supervisor server-side resources on Kubernetes. It ships the Pinniped CRDs in its `crds/` folder, and Helm installs them before everything else. They are not a value: to leave them out, use `helm install --skip-crds` or the Argo CD option `skipCrds`, see [Installing the CRDs](#installing-the-crds).
 >The main customization surface lives in `values.yaml` under the `concierge` and `supervisor` sections.
+
+## Global values
+
+Both components need many of the same settings: the hostname, the cert-manager issuer, ingress on or off, the TLS secret, the issuer URL. Set them once under `global` instead of once per component. The order is: the component's own value, then `global`, then the built-in default. A boolean left at `null` and a string left at `""` in a component inherit, so an explicit `false` or a value of its own always wins.
+
+| `global` key | Used for | Component keys that override it |
+| --- | --- | --- |
+| `domain` | Hostnames `<hostPrefix>.<domain>`: `supervisor.<domain>`, and `concierge.<domain>` unless you change `concierge.ingress.hostPrefix`. | `<component>.ingress.hostname` |
+| `certManager.enabled` | Create the cert-manager `Certificate` of both components. | `<component>.tls.certManager.enabled` |
+| `certManager.issuerRef.name`, `.kind`, `.group` | The issuer of both Certificates. | `<component>.tls.certManager.issuerRef.*` |
+| `ingress.enabled` | Expose both components. | `<component>.ingress.enabled` |
+| `ingress.provider` | `traefik` or `nginx`. | `<component>.ingress.provider` |
+| `gatewayAPI.enabled` | Render a Gateway API route for both components. Independent of `ingress`. | `<component>.gatewayAPI.enabled` |
+| `gatewayAPI.parentRefs` | The Gateways both routes attach to. | `<component>.gatewayAPI.parentRefs` |
+
+Values that must be identical by nature are derived, so you do not repeat them:
+
+- The Certificate `dnsNames` are the component hostname.
+- The `FederationDomain` issuer is `https://<supervisor hostname>`, unless `supervisor.federationDomain.issuer` is set.
+- The `JWTAuthenticator` issuer is the Supervisor's issuer, because the two must match exactly, unless `concierge.jwtAuthenticator.issuer` is set. Set it when the Supervisor runs on another cluster.
+- The Supervisor's TLS secret is one name for the Certificate, the Supervisor config, the `FederationDomain` and the ingress: `supervisor.tls.certManager.certificate.secretName` while cert-manager is on, otherwise `supervisor.tls.secretName`, otherwise a generated name.
+
+```yaml
+global:
+  domain: wxops.10-0-0-5.nip.io
+  certManager:
+    enabled: true
+    issuerRef:
+      name: wxops-idp-ca-issuer
+      kind: ClusterIssuer
+  ingress:
+    enabled: true
+
+concierge:
+  ingress:
+    hostPrefix: cp            # cp.wxops.10-0-0-5.nip.io
+  jwtAuthenticator:
+    create: true
+    audience: hub-cluster
+
+supervisor:
+  federationDomain:
+    create: true              # issuer https://supervisor.wxops.10-0-0-5.nip.io
+```
+
+That renders both Certificates, both Traefik routes, the `FederationDomain` and a `JWTAuthenticator` with the same issuer, with no hostname repeated.
 
 ## Networking requirements
 
@@ -18,9 +64,9 @@ This chart supports four exposure patterns per component:
 - `traefik`: renders an `IngressRouteTCP` with `tls.passthrough=true`. This is the recommended option because it is a native Layer 4/TCP resource.
 - `nginx`: renders a standard `Ingress` with `nginx.ingress.kubernetes.io/ssl-passthrough: "true"`. This requires the NGINX Ingress Controller to be started with `--enable-ssl-passthrough`.
 - `loadBalancer`: uses the Kubernetes `Service` type `LoadBalancer`. This is useful on AWS or other clouds when you already run a load balancer controller and want to pass controller-specific annotations or `loadBalancerClass` values.
-- `gateway-api`: renders a Gateway API route. The chart supports both `TLSRoute` and `TCPRoute` styles through `*.ingress.gatewayAPI.routeKind`.
+- `gateway-api`: renders a Gateway API `TLSRoute` or `TCPRoute`. It is not an `ingress` provider: it has its own `*.gatewayAPI` values and its own templates, so `ingress` and `gatewayAPI` can be on together or apart.
 
-The chart does not force any controller. Leave `concierge.ingress.enabled=false` and `supervisor.ingress.enabled=false` if you prefer to expose Pinniped only through a `LoadBalancer`, `NodePort`, or another TCP proxy.
+The chart does not force any controller. Leave `concierge.ingress.enabled=false`, `supervisor.ingress.enabled=false` and the `*.gatewayAPI.enabled` values off if you prefer to expose Pinniped only through a `LoadBalancer`, `NodePort`, or another TCP proxy.
 
 ### LoadBalancer notes
 
@@ -32,11 +78,26 @@ For cloud-native exposure, use the `service.*.loadBalancer.*` values.
 
 ### Gateway API notes
 
-To use Gateway API, set `*.ingress.provider=gateway-api` and `*.ingress.gatewayAPI.enabled=true`, then provide at least one `parentRef`.
+Gateway API is set under `<component>.gatewayAPI`, next to `ingress` and not inside it. Set `*.gatewayAPI.enabled=true` and at least one `parentRefs` entry, on the component or once for both under `global.gatewayAPI`.
 
-- Use `routeKind: TLSRoute` when your Gateway implementation supports TLS passthrough with SNI matching.
-- Use `routeKind: TCPRoute` when you want pure TCP forwarding and your Gateway implementation does not support `TLSRoute`.
-- The backend service will be selected from the chart values, or you can force it with `*.ingress.service.name`.
+```yaml
+global:
+  domain: example.com
+  gatewayAPI:
+    enabled: true
+    parentRefs:
+      - name: main-gateway
+        sectionName: tls
+```
+
+- Use `routeKind: TLSRoute` when your Gateway implementation supports TLS passthrough with SNI matching. The route matches the hostname: `gatewayAPI.hostnames`, then `gatewayAPI.hostname`, then the `ingress` hostname (`<hostPrefix>.<global.domain>` when unset).
+- Use `routeKind: TCPRoute` when you want pure TCP forwarding and your Gateway implementation does not support `TLSRoute`. A `TCPRoute` has no hostnames.
+- `*.gatewayAPI.apiVersion` is empty by default and follows the kind: `gateway.networking.k8s.io/v1` for a `TLSRoute` and `gateway.networking.k8s.io/v1alpha2` for a `TCPRoute`. Which versions are served depends on the Gateway API release and channel you installed (`TLSRoute` is `v1` in the standard channel from Gateway API 1.5, `TCPRoute` is in the experimental channel until `v1`), so set it when your CRDs serve another one. `kubectl get crd tlsroutes.gateway.networking.k8s.io -o jsonpath='{.spec.versions[*].name}'` lists them.
+- The route has its own backend, `*.gatewayAPI.service.{name,port}`. Empty uses the same Service the ingress would, and the Supervisor's `ClusterIP` Service is created for it, so `*.ingress.enabled` can stay off.
+- Route annotations are `*.gatewayAPI.annotations`. `*.ingress.annotations` apply only to the ingress resources.
+- The Gateway terminates nothing: its listener must pass TLS through to the Pinniped pods.
+
+Moving from 0.1.x: `*.ingress.provider=gateway-api` and `*.ingress.gatewayAPI.*` now fail the render with a message that names the new place. Move the keys to `*.gatewayAPI.*` and leave `ingress.provider` at `traefik` or `nginx`.
 
 ## TLS certificate options
 
@@ -49,6 +110,23 @@ This chart provides optional cert-manager integration, but does not require cert
 - Set `*.tls.certManager.createSelfSignedIssuer=true` to let the chart create a simple self-signed `Issuer` in the component namespace.
 
 If you already have your own issuer, set `*.tls.certManager.issuerRef.*` and keep `createSelfSignedIssuer=false`.
+
+The Certificate `dnsNames` default to the component's ingress hostname, so you rarely set them. To set them, any of these works:
+
+```bash
+--set 'supervisor.tls.certManager.certificate.dnsNames[0]=sso.example.com'
+--set 'supervisor.tls.certManager.certificate.dnsNames={sso.example.com,sso.example.org}'
+```
+
+```yaml
+supervisor:
+  tls:
+    certManager:
+      certificate:
+        dnsNames: [sso.example.com]
+```
+
+A single name, `[sso.example.com]`, `["sso.example.com"]` and `sso.example.com,sso.example.org` are read as lists too. Helm's `--set` does not turn `[...]` into a list, and Argo CD passes a parameter as you typed it, so these reach the chart as plain text. Brackets, quotes and spaces cannot be part of a host name, so they are dropped. Anything that is not a name or a list fails with the key in the message.
 
 ## Example
 
@@ -191,15 +269,13 @@ Gateway API example:
 ```yaml
 supervisor:
 	ingress:
-		enabled: true
-		provider: gateway-api
 		hostname: supervisor.example.com
-		gatewayAPI:
-			enabled: true
-			routeKind: TLSRoute
-			parentRefs:
-				- name: main-gateway
-					sectionName: https
+	gatewayAPI:
+		enabled: true
+		routeKind: TLSRoute
+		parentRefs:
+			- name: main-gateway
+				sectionName: https
 ```
 
 AWS/NLB-style load balancer example:
@@ -229,9 +305,14 @@ By default, this chart will not create and expose services and ingress for both 
 2. Setup TLS certificates with cert-manager integration, including self-signed issuers for local development and testing. Because Pinniped requires end-to-end TLS, so you can use cert-manager to automate certificate management for both the Supervisor and Concierge components.
 3. Support you modify configuration for both Supervisor and Concierge components seperately, it help you prevent errors for mismatch in configuration for couple of situations, such as
 
-Your concierge is exposed through Impersonation Proxy, but with the default chart, it will support for type: LoadBalancer, it means you need another loadbalancer controller to help you create new load balancer, such as metalLB, AWS Load Balancer Controller, or other cloud load balancer controller. But when you read about [Pinniped API](https://github.com/vmware/pinniped/tree/main/generated/latest), it will show you more configuration instead of just `type: LoadBalancer`, it also support for `ClusterIP` and `None`, it means use can use `ClusterIP` and expose it through your own ingress controller with `externalEndpoint` add-on, by default this value will be set be served using the external name of the LoadBalancer service or the cluster service DNS name.
+The Concierge impersonation proxy is exposed as a `ClusterIP` Service by default, with no cloud annotations. That works on any cluster without a load balancer controller. Put your own ingress, Gateway API route or TCP proxy in front of it and tell clients where it is with `externalEndpoint`. Left empty, Pinniped advertises the Service's cluster DNS name, which only works from inside the cluster.
 
-That why, you can change this one to expose the Concierge right way for support Impersonation Proxy, instead encounter problems with LoadBalancer for this one, and also ignore unsupport cluster which don't include any `kube-controller-manager` which not let pinniped interact when create new `kubeconfig` for your users.
+Two settings choose the Service type, and they are not the same thing:
+
+- `concierge.credentialIssuer.impersonationProxy.service.type` (`ClusterIP`, `LoadBalancer` or `None`) is what the Concierge creates for itself from the `CredentialIssuer`: `...-impersonation-proxy-cluster-ip` or `...-impersonation-proxy-load-balancer`. Set it to `LoadBalancer`, with `service.annotations` and `service.loadBalancerIP`, to have Pinniped create a cloud load balancer. The annotations apply only to a `LoadBalancer`. See the [Pinniped API](https://github.com/vmware/pinniped/tree/main/generated/latest#impersonationproxyservicetype-string).
+- `concierge.service.proxy.*` is a Service created by this chart for the same pods, and it is the backend `concierge.ingress` and `concierge.gatewayAPI` point at. It defaults to `ClusterIP` too.
+
+Use `mode: enabled` when your cluster has a `kube-controller-manager` Pinniped can find and you still want the proxy, and `auto` (the default) to let Pinniped turn it on only for clusters without one, such as managed Kubernetes.
 
 ```yaml
   # -- CredentialIssuer bootstrap resource for Concierge impersonation support.
@@ -244,13 +325,66 @@ That why, you can change this one to expose the Concierge right way for support 
         type: ClusterIP
 ```
 
+## Installing the CRDs
+
+The chart ships nine Pinniped CRDs (`FederationDomain`, `OIDCClient`, the identity providers, `JWTAuthenticator`, `WebhookAuthenticator`, `CredentialIssuer`) in `crds/`, and each only once. CRDs are cluster-wide, so what matters is who owns them on a cluster: install them from exactly one place, and tell every other install to leave them alone.
+
+| Situation | Helm | Argo CD |
+| --- | --- | --- |
+| **First install on a cluster.** The chart installs the CRDs. | `helm install pinniped wxops/pinniped` | Leave `skipCrds` unset. |
+| **Another release on a cluster that already has the CRDs.** | The same command works, Helm logs `CRD … is already present. Skipping.` Add `--skip-crds` to not touch them at all. | Set `helm.skipCrds: true` on every Application except the one that owns the CRDs. |
+| **CRDs managed somewhere else** (your own Application, `kubectl`, a GitOps repo). | `--skip-crds` | `helm.skipCrds: true` |
+| **Upgrading the chart.** | Helm never upgrades `crds/`. Apply them yourself, see below. | The Application that owns the CRDs re-applies them on every sync. |
+
+Argo CD renders the chart with `helm template --include-crds`, so by default it manages the CRDs together with the rest. Exactly one Application should do that. If two Applications render the same CRDs, Argo CD reports them as shared resources and pruning one Application can delete CRDs the other still needs:
+
+```yaml
+# The Application that owns the CRDs: nothing to set.
+# Every other Application that installs this chart:
+spec:
+  source:
+    repoURL: https://charts.wxops.cloud
+    chart: pinniped
+    targetRevision: 0.2.0
+    helm:
+      skipCrds: true
+```
+
+**Upgrading the CRDs with Helm.** Helm only installs `crds/` on the first install and never changes them afterwards, so apply them from the chart version you are upgrading to before you run `helm upgrade`:
+
+```bash
+helm show crds wxops/pinniped --version <new version> | kubectl apply --server-side -f -
+helm upgrade pinniped wxops/pinniped --version <new version>
+```
+
+**Uninstalling.** `helm uninstall` leaves the CRDs in place, and with them your `FederationDomain`, `JWTAuthenticator` and other resources. Deleting the Argo CD Application that owns the CRDs with the default cascading delete removes the CRDs too, and every Pinniped resource with them, so use a non-cascading delete there. Delete the CRDs by hand only when you really want Pinniped gone from the cluster.
+
+### Upgrading from 0.1.x
+
+Versions before 0.2.0 also had an `installCRDs` value that rendered the same CRDs a second time from `templates/`. That is what failed with `exists and cannot be imported into the current release` or created the CRDs twice in Argo CD. The value and the template are gone, the CRDs now come from `crds/` only, and a leftover `installCRDs` in your values is ignored.
+
+If you installed with Helm using `installCRDs=true` **and** `--skip-crds`, the release owns the CRDs, and Helm deletes anything a release rendered before but no longer renders. Mark the CRDs to be kept before upgrading, or the upgrade deletes them and every Pinniped resource with them:
+
+```bash
+helm get manifest pinniped -n pinniped | grep -c '^kind: CustomResourceDefinition'   # more than 0 means the release owns them
+kubectl get crd -o name | grep 'pinniped.dev' | xargs -I{} kubectl annotate {} helm.sh/resource-policy=keep --overwrite
+```
+
+Argo CD users are not affected, Argo CD keeps rendering the CRDs from `crds/`. If you set `skipCrds: true` before, nothing changes.
+
 ## Installing the Chart
 
-To install the chart with the release name `pinniped`:
+To install the chart with the release name `pinniped`, CRDs included:
 
 ```bash
 helm repo add wxops https://charts.wxops.cloud
 helm install pinniped wxops/{{ template "chart.name" . }}
+```
+
+When the CRDs are already on the cluster or managed elsewhere, skip them, see [Installing the CRDs](#installing-the-crds):
+
+```bash
+helm install pinniped wxops/{{ template "chart.name" . }} --skip-crds
 ```
 
 For local rendering/testing:
@@ -265,6 +399,8 @@ helm lint .
 ```bash
 helm uninstall pinniped
 ```
+
+The CRDs are kept, see [Installing the CRDs](#installing-the-crds).
 
 ## Also preference
 

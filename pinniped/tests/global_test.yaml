@@ -1,0 +1,333 @@
+# Settings both components share live under `global`. A component's own value wins, then `global`, then the built-in
+# default. These tests start from the chart's defaults, not from values-test.yaml, so nothing is switched on already.
+suite: global values
+templates:
+  - templates/supervisor/ingress.yaml
+  - templates/concierge/ingress.yaml
+  - templates/supervisor/tls.yaml
+  - templates/concierge/tls.yaml
+  - templates/supervisor/pinniped-extras.yaml
+  - templates/concierge/pinniped-extras.yaml
+  - templates/supervisor/configmaps.yaml
+tests:
+  # --- hostnames from global.domain
+  - it: builds both hostnames from the domain and each component's hostPrefix
+    template: templates/supervisor/ingress.yaml
+    set:
+      global.domain: example.com
+      global.ingress.enabled: true
+    asserts:
+      - equal:
+          path: spec.routes[0].match
+          value: "HostSNI(`supervisor.example.com`)"
+
+  - it: builds the Concierge hostname from the domain too
+    template: templates/concierge/ingress.yaml
+    set:
+      global.domain: example.com
+      global.ingress.enabled: true
+      concierge.ingress.hostPrefix: cp
+    asserts:
+      - equal:
+          path: spec.routes[0].match
+          value: "HostSNI(`cp.example.com`)"
+
+  - it: lets a component hostname win over the domain
+    template: templates/supervisor/ingress.yaml
+    set:
+      global.domain: example.com
+      global.ingress.enabled: true
+      supervisor.ingress.hostname: sso.other.org
+    asserts:
+      - equal:
+          path: spec.routes[0].match
+          value: "HostSNI(`sso.other.org`)"
+
+  - it: needs a hostname when ingress is on and neither a hostname nor a domain is set
+    template: templates/supervisor/ingress.yaml
+    set:
+      global.ingress.enabled: true
+    asserts:
+      - failedTemplate:
+          errorMessage: "supervisor.ingress.hostname is required when ingress is enabled"
+
+  # --- ingress enabled and provider
+  - it: leaves ingress off when nothing turns it on
+    template: templates/supervisor/ingress.yaml
+    set:
+      global.domain: example.com
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: lets a component turn ingress off although global turns it on
+    template: templates/concierge/ingress.yaml
+    set:
+      global.domain: example.com
+      global.ingress.enabled: true
+      concierge.ingress.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: lets a component turn ingress on although global leaves it off
+    template: templates/concierge/ingress.yaml
+    set:
+      concierge.ingress.enabled: true
+      concierge.ingress.hostname: c.example.com
+    asserts:
+      - isKind:
+          of: IngressRouteTCP
+
+  - it: uses the global provider, and a component provider wins over it
+    template: templates/supervisor/ingress.yaml
+    set:
+      global.domain: example.com
+      global.ingress.enabled: true
+      global.ingress.provider: nginx
+    asserts:
+      - isKind:
+          of: Ingress
+      - equal:
+          path: spec.rules[0].host
+          value: supervisor.example.com
+
+  - it: a component provider wins over the global one
+    template: templates/supervisor/ingress.yaml
+    set:
+      global.domain: example.com
+      global.ingress.enabled: true
+      global.ingress.provider: nginx
+      supervisor.ingress.provider: traefik
+    asserts:
+      - isKind:
+          of: IngressRouteTCP
+
+  # --- cert-manager
+  - it: creates both Certificates from the global issuer
+    template: templates/supervisor/tls.yaml
+    set:
+      global.domain: example.com
+      global.ingress.enabled: true
+      global.certManager.enabled: true
+      global.certManager.issuerRef.name: ca
+      global.certManager.issuerRef.kind: ClusterIssuer
+    asserts:
+      - isKind:
+          of: Certificate
+      - equal:
+          path: spec.issuerRef
+          value:
+            name: ca
+            kind: ClusterIssuer
+            group: cert-manager.io
+      - equal:
+          path: spec.dnsNames
+          value: [supervisor.example.com]
+
+  - it: gives the Concierge Certificate the same issuer and its own hostname
+    template: templates/concierge/tls.yaml
+    set:
+      global.domain: example.com
+      global.certManager.enabled: true
+      global.certManager.issuerRef.name: ca
+      global.certManager.issuerRef.kind: ClusterIssuer
+      concierge.ingress.hostPrefix: cp
+    asserts:
+      - equal:
+          path: spec.issuerRef.name
+          value: ca
+      - equal:
+          path: spec.dnsNames
+          value: [cp.example.com]
+
+  - it: lets a component issuer value win over the global one
+    template: templates/supervisor/tls.yaml
+    set:
+      global.certManager.enabled: true
+      global.certManager.issuerRef.name: ca
+      global.certManager.issuerRef.kind: ClusterIssuer
+      supervisor.tls.certManager.issuerRef.kind: Issuer
+      supervisor.tls.certManager.issuerRef.name: local-ca
+    asserts:
+      - equal:
+          path: spec.issuerRef.name
+          value: local-ca
+      - equal:
+          path: spec.issuerRef.kind
+          value: Issuer
+
+  - it: lets a component turn cert-manager off although global turns it on
+    template: templates/concierge/tls.yaml
+    set:
+      global.certManager.enabled: true
+      global.certManager.issuerRef.name: ca
+      concierge.tls.certManager.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: falls back to an Issuer in cert-manager.io when neither level names a kind or group
+    template: templates/supervisor/tls.yaml
+    set:
+      supervisor.tls.certManager.enabled: true
+      supervisor.tls.certManager.issuerRef.name: ca
+      global.certManager.issuerRef.kind: ""
+      global.certManager.issuerRef.group: ""
+    asserts:
+      - equal:
+          path: spec.issuerRef.kind
+          value: Issuer
+      - equal:
+          path: spec.issuerRef.group
+          value: cert-manager.io
+
+  - it: wraps a single dnsNames string, which is what --set gives, into a list
+    template: templates/concierge/tls.yaml
+    set:
+      concierge.tls.certManager.enabled: true
+      concierge.tls.certManager.issuerRef.name: ca
+      concierge.tls.certManager.certificate.dnsNames: cp.example.com
+    asserts:
+      - equal:
+          path: spec.dnsNames
+          value: [cp.example.com]
+
+  # --- one TLS secret for the Supervisor, wherever it is used
+  - it: uses the cert-manager secret name in the Certificate
+    template: templates/supervisor/tls.yaml
+    set:
+      supervisor.tls.certManager.enabled: true
+      supervisor.tls.certManager.issuerRef.name: ca
+      supervisor.tls.certManager.certificate.secretName: my-tls
+    asserts:
+      - equal:
+          path: spec.secretName
+          value: my-tls
+
+  - it: uses the same secret in the FederationDomain
+    template: templates/supervisor/pinniped-extras.yaml
+    documentSelector:
+      path: kind
+      value: FederationDomain
+    set:
+      supervisor.federationDomain.create: true
+      supervisor.federationDomain.issuer: https://sso.example.com
+      supervisor.tls.certManager.enabled: true
+      supervisor.tls.certManager.issuerRef.name: ca
+      supervisor.tls.certManager.certificate.secretName: my-tls
+    asserts:
+      - equal:
+          path: spec.tls.secretName
+          value: my-tls
+
+  - it: uses the same secret as the Supervisor's default TLS certificate
+    template: templates/supervisor/configmaps.yaml
+    set:
+      supervisor.tls.certManager.enabled: true
+      supervisor.tls.certManager.issuerRef.name: ca
+      supervisor.tls.certManager.certificate.secretName: my-tls
+    asserts:
+      - matchRegex:
+          path: data["pinniped.yaml"]
+          pattern: 'defaultTLSCertificateSecret: "my-tls"'
+
+  - it: uses the same secret when the ingress terminates TLS
+    template: templates/supervisor/ingress.yaml
+    set:
+      supervisor.ingress.enabled: true
+      supervisor.ingress.hostname: sso.example.com
+      supervisor.tls.certManager.enabled: true
+      supervisor.tls.certManager.issuerRef.name: ca
+      supervisor.tls.certManager.certificate.secretName: my-tls
+    asserts:
+      - equal:
+          path: spec.tls.secretName
+          value: my-tls
+
+  - it: takes tls.secretName when cert-manager is off
+    template: templates/supervisor/configmaps.yaml
+    set:
+      supervisor.tls.secretName: own-secret
+    asserts:
+      - matchRegex:
+          path: data["pinniped.yaml"]
+          pattern: 'defaultTLSCertificateSecret: "own-secret"'
+
+  - it: keeps the generated name when nothing names the secret
+    template: templates/supervisor/configmaps.yaml
+    asserts:
+      - matchRegex:
+          path: data["pinniped.yaml"]
+          pattern: 'defaultTLSCertificateSecret: "pinniped-supervisor-default-tls-certificate"'
+
+  # --- issuer URLs
+  - it: derives the FederationDomain issuer from the Supervisor hostname
+    template: templates/supervisor/pinniped-extras.yaml
+    documentSelector:
+      path: kind
+      value: FederationDomain
+    set:
+      global.domain: example.com
+      supervisor.federationDomain.create: true
+    asserts:
+      - equal:
+          path: spec.issuer
+          value: https://supervisor.example.com
+
+  - it: keeps an issuer that is set
+    template: templates/supervisor/pinniped-extras.yaml
+    documentSelector:
+      path: kind
+      value: FederationDomain
+    set:
+      global.domain: example.com
+      supervisor.federationDomain.create: true
+      supervisor.federationDomain.issuer: https://sso.other.org
+    asserts:
+      - equal:
+          path: spec.issuer
+          value: https://sso.other.org
+
+  - it: gives the JWTAuthenticator the Supervisor issuer, which the two must share
+    template: templates/concierge/pinniped-extras.yaml
+    documentSelector:
+      path: kind
+      value: JWTAuthenticator
+    set:
+      global.domain: example.com
+      concierge.jwtAuthenticator.create: true
+      concierge.jwtAuthenticator.audience: hub
+    asserts:
+      - equal:
+          path: spec.issuer
+          value: https://supervisor.example.com
+
+  - it: follows an explicit FederationDomain issuer
+    template: templates/concierge/pinniped-extras.yaml
+    documentSelector:
+      path: kind
+      value: JWTAuthenticator
+    set:
+      supervisor.federationDomain.issuer: https://sso.other.org
+      concierge.jwtAuthenticator.create: true
+      concierge.jwtAuthenticator.audience: hub
+    asserts:
+      - equal:
+          path: spec.issuer
+          value: https://sso.other.org
+
+  - it: lets the JWTAuthenticator issuer be its own, for a Supervisor on another cluster
+    template: templates/concierge/pinniped-extras.yaml
+    documentSelector:
+      path: kind
+      value: JWTAuthenticator
+    set:
+      global.domain: example.com
+      concierge.jwtAuthenticator.create: true
+      concierge.jwtAuthenticator.audience: hub
+      concierge.jwtAuthenticator.issuer: https://hub.example.org
+    asserts:
+      - equal:
+          path: spec.issuer
+          value: https://hub.example.org

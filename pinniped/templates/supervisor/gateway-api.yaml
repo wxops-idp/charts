@@ -1,34 +1,28 @@
-{{- if and .Values.supervisor.enabled .Values.supervisor.ingress.enabled (eq .Values.supervisor.ingress.provider "gateway-api") .Values.supervisor.ingress.gatewayAPI.enabled }}
-apiVersion: {{ .Values.supervisor.ingress.gatewayAPI.apiVersion }}
-kind: {{ .Values.supervisor.ingress.gatewayAPI.routeKind }}
+{{- $gateway := include "pinniped.gatewayAPI" (dict "root" . "component" "supervisor") | fromYaml -}}
+{{- if and .Values.supervisor.enabled $gateway.enabled }}
+apiVersion: {{ $gateway.apiVersion }}
+kind: {{ .Values.supervisor.gatewayAPI.routeKind }}
 metadata:
-  name: {{ default (printf "%s-gateway-route" (include "pinniped.componentName" (dict "root" . "component" "supervisor"))) .Values.supervisor.ingress.gatewayAPI.routeName | trunc 63 | trimSuffix "-" }}
+  name: {{ default (printf "%s-gateway-route" (include "pinniped.componentName" (dict "root" . "component" "supervisor"))) .Values.supervisor.gatewayAPI.routeName | trunc 63 | trimSuffix "-" }}
   namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "supervisor") }}
   labels:
 {{ include "pinniped.componentLabels" (dict "root" . "component" "supervisor" "componentValues" .Values.supervisor) | indent 4 }}
-{{- with .Values.supervisor.ingress.annotations }}
+{{- with .Values.supervisor.gatewayAPI.annotations }}
   annotations:
 {{ toYaml . | indent 4 }}
 {{- end }}
 spec:
   parentRefs:
-{{- if .Values.supervisor.ingress.gatewayAPI.parentRefs }}
-{{ toYaml .Values.supervisor.ingress.gatewayAPI.parentRefs | indent 4 }}
-{{- else }}
-    []
+{{- if not $gateway.parentRefs }}
+{{- fail "supervisor.gatewayAPI.parentRefs (or global.gatewayAPI.parentRefs) is required when the Gateway API route is enabled" }}
 {{- end }}
-{{- if eq .Values.supervisor.ingress.gatewayAPI.routeKind "TLSRoute" }}
-{{- $hostnames := .Values.supervisor.ingress.gatewayAPI.hostnames }}
-{{- if and (eq (len $hostnames) 0) .Values.supervisor.ingress.hostname }}
+{{ toYaml $gateway.parentRefs | indent 4 }}
+{{- with $gateway.hostnames }}
   hostnames:
-    - {{ .Values.supervisor.ingress.hostname | quote }}
-{{- else if gt (len $hostnames) 0 }}
-  hostnames:
-{{ toYaml $hostnames | indent 4 }}
-{{- end }}
+{{ toYaml . | indent 4 }}
 {{- end }}
   rules:
     - backendRefs:
-        - name: {{ include "pinniped.supervisor.exposureServiceName" . }}
-          port: {{ .Values.supervisor.ingress.service.port }}
+        - name: {{ include "pinniped.supervisor.gatewayServiceName" . }}
+          port: {{ .Values.supervisor.gatewayAPI.service.port }}
 {{- end }}

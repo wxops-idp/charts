@@ -25,7 +25,7 @@ metadata:
   labels:
 {{ include "pinniped.componentLabels" (dict "root" . "component" "supervisor" "componentValues" .Values.supervisor) | indent 4 }}
 spec:
-  issuer: {{ required "supervisor.federationDomain.issuer is required when federationDomain.create=true" .Values.supervisor.federationDomain.issuer | quote }}
+  issuer: {{ required "supervisor.federationDomain.issuer is required when federationDomain.create=true" (include "pinniped.supervisor.issuer" .) | quote }}
   tls:
     secretName: {{ default (include "pinniped.supervisor.defaultTLSSecretName" .) .Values.supervisor.federationDomain.tlsSecretName | quote }}
 {{- if or .Values.supervisor.identityProviders.dex.create .Values.supervisor.identityProviders.github.create .Values.supervisor.identityProviders.ldap.create .Values.supervisor.federationDomain.identityProviders }}

@@ -63,7 +63,7 @@ metadata:
   labels:
 {{ include "pinniped.componentLabels" (dict "root" . "component" "concierge" "componentValues" .Values.concierge) | indent 4 }}
 spec:
-  issuer: {{ required "concierge.jwtAuthenticator.issuer is required when jwtAuthenticator.create=true" .Values.concierge.jwtAuthenticator.issuer | quote }}
+  issuer: {{ required "concierge.jwtAuthenticator.issuer is required when jwtAuthenticator.create=true" (default (include "pinniped.supervisor.issuer" .) .Values.concierge.jwtAuthenticator.issuer) | quote }}
   audience: {{ required "concierge.jwtAuthenticator.audience is required when jwtAuthenticator.create=true" .Values.concierge.jwtAuthenticator.audience | quote }}
 {{- if or .Values.concierge.jwtAuthenticator.certificateAuthorityData (and .Values.concierge.jwtAuthenticator.certificateAuthorityDataSource.kind .Values.concierge.jwtAuthenticator.certificateAuthorityDataSource.name) }}
   tls:
