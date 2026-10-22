@@ -38,10 +38,12 @@ tests:
           count: 0
 
   # FederationDomain
-  - it: fails when the FederationDomain has no issuer
+  # The issuer is derived from the Supervisor hostname, so it is only missing when there is no hostname either.
+  - it: fails when the FederationDomain has no issuer and no hostname to derive one from
     template: templates/supervisor/pinniped-extras.yaml
     set:
       supervisor.federationDomain.issuer: ""
+      supervisor.ingress.hostname: ""
     asserts:
       - failedTemplate:
           errorMessage: "supervisor.federationDomain.issuer is required when federationDomain.create=true"

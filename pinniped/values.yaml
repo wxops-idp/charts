@@ -1,12 +1,39 @@
-# -- Install Pinniped CRDs as part of this chart render.
-installCRDs: false
-
 # -- Global namespace settings for Pinniped components.
 namespace:
   # -- Create the component namespaces (`<name>-concierge` and `<name>-supervisor`).
   create: true
   # -- Base namespace prefix used to derive component namespaces. Empty defaults to `pinniped`.
   name: ""
+
+# -- Settings both components share. A component's own value wins, then `global`, then the built-in default.
+# Set them once here instead of once per component. A boolean left at `null` and a string left at `""` in a component
+# inherit from here, an explicit `false` or a value of its own does not.
+global:
+  # -- Base domain of both components. An empty `ingress.hostname` becomes `<ingress.hostPrefix>.<domain>`, so
+  # `domain: example.com` gives `supervisor.example.com` and `concierge.example.com`. That also feeds the TLS
+  # certificate names, the Supervisor's issuer URL and, by default, the JWTAuthenticator's issuer.
+  domain: ""
+  certManager:
+    # -- Use cert-manager for the TLS certificates of both components.
+    enabled: false
+    # -- cert-manager issuer for both Certificates.
+    issuerRef:
+      # -- Name of the issuer. Empty uses the self-signed `Issuer` of each component when `createSelfSignedIssuer` is on.
+      name: ""
+      # -- Kind of the issuer: `Issuer` or `ClusterIssuer`.
+      kind: Issuer
+      # -- API group of the issuer.
+      group: cert-manager.io
+  ingress:
+    # -- Expose both components through the provider below.
+    enabled: false
+    # -- Exposure provider for both components: `traefik` or `nginx`. Gateway API is set under `gatewayAPI`.
+    provider: traefik
+  gatewayAPI:
+    # -- Render a Gateway API route for both components. It is independent of `ingress`.
+    enabled: false
+    # -- Gateways both routes attach to. A component's own `gatewayAPI.parentRefs` wins.
+    parentRefs: []
 
 # -- Common labels applied to all rendered resources.
 commonLabels: {}
@@ -41,7 +68,7 @@ concierge:
     dockerconfigjson: ""
 
   # -- Number of Concierge replicas.
-  replicaCount: 2
+  replicaCount: 1
 
   # -- Pod-level security context for Concierge pods.
   podSecurityContext:
@@ -153,11 +180,10 @@ concierge:
       service:
         # -- Service type reported for the impersonation proxy endpoint. (`ClusterIP` or `LoadBalancer` or `None`).
         # Ref: https://github.com/vmware/pinniped/tree/main/generated/latest#impersonationproxyservicetype-string
-        type: LoadBalancer
-        # -- Service annotations published for the impersonation proxy endpoint.
-        annotations:
-          # -- Default AWS idle timeout annotation used for the impersonation proxy endpoint.
-          service.beta.kubernetes.io/aws-load-balancer-connection-idle-timeout: "4000"
+        type: ClusterIP
+        # -- Service annotations published for the impersonation proxy endpoint. Only used with `type: LoadBalancer`, e.g. the
+        # AWS `service.beta.kubernetes.io/aws-load-balancer-connection-idle-timeout: "4000"`.
+        annotations: {}
         # -- Static load balancer IP reported for the impersonation proxy endpoint.
         loadBalancerIP: ""
 
@@ -171,18 +197,18 @@ concierge:
       impersonationProxy: ""
     # -- Optional cert-manager integration for Concierge certificates.
     certManager:
-      # -- Enable cert-manager resources for Concierge.
-      enabled: false
+      # -- Enable cert-manager resources for Concierge. `null` inherits `global.certManager.enabled`.
+      enabled: ~
       # -- Create a simple self-signed `Issuer` in the Concierge namespace.
       createSelfSignedIssuer: false
       # -- cert-manager issuer reference used by the Concierge certificate.
       issuerRef:
-        # -- Name of the cert-manager issuer.
+        # -- Name of the cert-manager issuer. Empty inherits `global.certManager.issuerRef.name`.
         name: ""
-        # -- Kind of the cert-manager issuer or clusterissuer resource.
-        kind: Issuer
-        # -- API group of the cert-manager issuer or clusterissuer resource.
-        group: cert-manager.io
+        # -- Kind of the cert-manager issuer or clusterissuer resource. Empty inherits `global.certManager.issuerRef.kind`.
+        kind: ""
+        # -- API group of the cert-manager issuer or clusterissuer resource. Empty inherits `global.certManager.issuerRef.group`.
+        group: ""
       # -- cert-manager certificate options for Concierge.
       certificate:
         # -- Create a cert-manager `Certificate` for Concierge.
@@ -204,21 +230,23 @@ concierge:
           # -- Private key size for the Concierge certificate.
           size: 2048
 
-  # -- Concierge exposure settings for Traefik, NGINX passthrough, or Gateway API.
+  # -- Concierge ingress settings for Traefik or NGINX passthrough.
   ingress:
-    # -- Enable ingress or gateway-based exposure for Concierge.
-    enabled: false
-    # -- Exposure provider (`traefik`, `nginx`, or `gateway-api`).
-    provider: traefik
-    # -- Additional annotations applied to Concierge ingress or gateway resources.
+    # -- Enable ingress exposure (Traefik or NGINX) for Concierge. `null` inherits `global.ingress.enabled`.
+    enabled: ~
+    # -- Exposure provider (`traefik` or `nginx`). Empty inherits `global.ingress.provider`.
+    provider: ""
+    # -- Additional annotations applied to the Concierge ingress resources.
     annotations: {}
-    # -- Primary hostname used by Concierge passthrough exposure.
+    # -- Primary hostname used by Concierge passthrough exposure. Empty becomes `<hostPrefix>.<global.domain>` when `global.domain` is set.
     hostname: ""
-    # -- Backend service override used by ingress or gateway routes.
+    # -- First label of the hostname built from `global.domain`.
+    hostPrefix: concierge
+    # -- Backend service override used by the ingress.
     service:
-      # -- Explicit service name used as the ingress or gateway backend.
+      # -- Explicit service name used as the ingress backend.
       name: ""
-      # -- Service port used as the ingress or gateway backend.
+      # -- Service port used as the ingress backend.
       port: 443
     # -- Traefik `IngressRouteTCP` settings.
     traefik:
@@ -243,26 +271,33 @@ concierge:
       pathType: Prefix
       # -- TLS secret name for SSL. Typically the cert-manager-managed secret name.
       tlsSecretName: ""
-    # -- Gateway API route settings for Concierge.
-    gatewayAPI:
-      # -- Enable Gateway API route rendering for Concierge.
-      enabled: false
-      # -- API version used for the Gateway API route.
-      apiVersion: gateway.networking.k8s.io/v1beta1
-      # -- Gateway API route kind (`TLSRoute` or `TCPRoute`).
-      routeKind: TLSRoute
-      # -- Override the generated Gateway API route name.
-      routeName: ""
-      # -- Hostnames attached to the Gateway API route.
-      hostnames: []
-      # -- Parent references attached to the Gateway API route.
-      parentRefs: []
-      # -- Reserved field for future section name convenience helpers.
-      sectionName: ""
-    # -- Legacy L7 ingress hosts list retained for backward compatibility.
-    hosts: []
-    # -- Legacy L7 ingress TLS list retained for backward compatibility.
-    tls: []
+
+  # -- Gateway API route for Concierge. It is separate from `ingress`: enable one, the other, or both. The route is a
+  # `TLSRoute` (SNI passthrough) or a `TCPRoute`, so the Gateway needs a TLS passthrough or TCP listener.
+  gatewayAPI:
+    # -- Render the Gateway API route for Concierge. `null` inherits `global.gatewayAPI.enabled`.
+    enabled: ~
+    # -- API version of the route. Empty picks one for the kind: `gateway.networking.k8s.io/v1` for a `TLSRoute`,
+    # `gateway.networking.k8s.io/v1alpha2` for a `TCPRoute`. Set it to match the Gateway API CRDs you installed.
+    apiVersion: ""
+    # -- Route kind: `TLSRoute` (matches the SNI hostnames) or `TCPRoute` (plain TCP, no hostnames).
+    routeKind: TLSRoute
+    # -- Override the generated route name.
+    routeName: ""
+    # -- Additional annotations on the route.
+    annotations: {}
+    # -- Hostname of a `TLSRoute`. Empty uses the `ingress` hostname, which is `<ingress.hostPrefix>.<global.domain>` when unset.
+    hostname: ""
+    # -- Several hostnames for a `TLSRoute`. Wins over `hostname`.
+    hostnames: []
+    # -- Gateways the route attaches to. Empty inherits `global.gatewayAPI.parentRefs`. One is required.
+    parentRefs: []
+    # -- Backend of the route. It does not follow `ingress.service`.
+    service:
+      # -- Explicit backend service name. Empty uses the same service the ingress would.
+      name: ""
+      # -- Backend service port.
+      port: 443
 
   # -- JWTAuthenticator that validates tokens issued by a Pinniped Supervisor FederationDomain.
   jwtAuthenticator:
@@ -315,7 +350,7 @@ supervisor:
     dockerconfigjson: ""
 
   # -- Number of Supervisor replicas.
-  replicaCount: 2
+  replicaCount: 1
 
   # -- Pod-level security context for Supervisor pods.
   podSecurityContext:
@@ -384,18 +419,18 @@ supervisor:
     secretName: ""
     # -- Optional cert-manager integration for Supervisor certificates.
     certManager:
-      # -- Enable cert-manager resources for Supervisor.
-      enabled: false
+      # -- Enable cert-manager resources for Supervisor. `null` inherits `global.certManager.enabled`.
+      enabled: ~
       # -- Create a simple self-signed `Issuer` in the Supervisor namespace.
       createSelfSignedIssuer: false
       # -- cert-manager issuer reference used by the Supervisor certificate.
       issuerRef:
-        # -- Name of the cert-manager issuer.
+        # -- Name of the cert-manager issuer. Empty inherits `global.certManager.issuerRef.name`.
         name: ""
-        # -- Kind of the cert-manager issuer or clusterissuer resource.
-        kind: Issuer
-        # -- API group of the cert-manager issuer or clusterissuer resource.
-        group: cert-manager.io
+        # -- Kind of the cert-manager issuer or clusterissuer resource. Empty inherits `global.certManager.issuerRef.kind`.
+        kind: ""
+        # -- API group of the cert-manager issuer or clusterissuer resource. Empty inherits `global.certManager.issuerRef.group`.
+        group: ""
       # -- cert-manager certificate options for Supervisor.
       certificate:
         # -- Create a cert-manager `Certificate` for Supervisor.
@@ -458,21 +493,23 @@ supervisor:
         # -- Optional source ranges allowed to reach the Supervisor LoadBalancer service.
         loadBalancerSourceRanges: []
 
-  # -- Supervisor exposure settings for Traefik, NGINX passthrough, or Gateway API.
+  # -- Supervisor ingress settings for Traefik or NGINX passthrough.
   ingress:
-    # -- Enable ingress or gateway-based exposure for Supervisor.
-    enabled: false
-    # -- Exposure provider (`traefik`, `nginx`, or `gateway-api`).
-    provider: traefik
-    # -- Additional annotations applied to Supervisor ingress or gateway resources.
+    # -- Enable ingress exposure (Traefik or NGINX) for Supervisor. `null` inherits `global.ingress.enabled`.
+    enabled: ~
+    # -- Exposure provider (`traefik` or `nginx`). Empty inherits `global.ingress.provider`.
+    provider: ""
+    # -- Additional annotations applied to the Supervisor ingress resources.
     annotations: {}
-    # -- Primary hostname used by Supervisor passthrough exposure.
+    # -- Primary hostname used by Supervisor passthrough exposure. Empty becomes `<hostPrefix>.<global.domain>` when `global.domain` is set.
     hostname: ""
-    # -- Backend service override used by ingress or gateway routes.
+    # -- First label of the hostname built from `global.domain`.
+    hostPrefix: supervisor
+    # -- Backend service override used by the ingress.
     service:
-      # -- Explicit service name used as the ingress or gateway backend.
+      # -- Explicit service name used as the ingress backend.
       name: ""
-      # -- Service port used as the ingress or gateway backend.
+      # -- Service port used as the ingress backend.
       port: 443
     # -- Traefik `IngressRouteTCP` settings.
     traefik:
@@ -497,22 +534,33 @@ supervisor:
       pathType: Prefix
       # -- TLS secret name for SSL. Typically the cert-manager-managed secret name.
       tlsSecretName: ""
-    # -- Gateway API route settings for Supervisor.
-    gatewayAPI:
-      # -- Enable Gateway API route rendering for Supervisor.
-      enabled: false
-      # -- API version used for the Gateway API route.
-      apiVersion: gateway.networking.k8s.io/v1beta1
-      # -- Gateway API route kind (`TLSRoute` or `TCPRoute`).
-      routeKind: TLSRoute
-      # -- Override the generated Gateway API route name.
-      routeName: ""
-      # -- Hostnames attached to the Gateway API route.
-      hostnames: []
-      # -- Parent references attached to the Gateway API route.
-      parentRefs: []
-      # -- Reserved field for future section name convenience helpers.
-      sectionName: ""
+
+  # -- Gateway API route for Supervisor. It is separate from `ingress`: enable one, the other, or both. The route is a
+  # `TLSRoute` (SNI passthrough) or a `TCPRoute`, so the Gateway needs a TLS passthrough or TCP listener.
+  gatewayAPI:
+    # -- Render the Gateway API route for Supervisor. `null` inherits `global.gatewayAPI.enabled`.
+    enabled: ~
+    # -- API version of the route. Empty picks one for the kind: `gateway.networking.k8s.io/v1` for a `TLSRoute`,
+    # `gateway.networking.k8s.io/v1alpha2` for a `TCPRoute`. Set it to match the Gateway API CRDs you installed.
+    apiVersion: ""
+    # -- Route kind: `TLSRoute` (matches the SNI hostnames) or `TCPRoute` (plain TCP, no hostnames).
+    routeKind: TLSRoute
+    # -- Override the generated route name.
+    routeName: ""
+    # -- Additional annotations on the route.
+    annotations: {}
+    # -- Hostname of a `TLSRoute`. Empty uses the `ingress` hostname, which is `<ingress.hostPrefix>.<global.domain>` when unset.
+    hostname: ""
+    # -- Several hostnames for a `TLSRoute`. Wins over `hostname`.
+    hostnames: []
+    # -- Gateways the route attaches to. Empty inherits `global.gatewayAPI.parentRefs`. One is required.
+    parentRefs: []
+    # -- Backend of the route. It does not follow `ingress.service`.
+    service:
+      # -- Explicit backend service name. Empty uses the same service the ingress would.
+      name: ""
+      # -- Backend service port.
+      port: 443
 
   # -- FederationDomain configures the Supervisor as an OIDC issuer for downstream clusters.
   federationDomain:
@@ -525,7 +573,18 @@ supervisor:
     tlsSecretName: ""
     # -- Additional identity provider references appended verbatim to the FederationDomain identityProviders list.
     # -- Each entry must have `displayName` and `objectRef.{apiGroup,kind,name}` fields.
+    # ref: https://pinniped.dev/docs/howto/supervisor/configure-supervisor-federationdomain-idps/
     identityProviders: []
+      # - displayName: Dex Authenticator
+      #   objectRef:
+      #     apiGroup: idp.supervisor.pinniped.dev
+      #     kind: OIDCIdentityProvider
+      #     name: dex-authenticator
+      # - displayName: ActiveDirectory for Admins
+      #   objectRef:
+      #     apiGroup: idp.supervisor.pinniped.dev
+      #     kind: ActiveDirectoryIdentityProvider
+      #     name: ad-for-admins
 
   # -- Identity provider resources created in the Supervisor namespace.
   identityProviders:

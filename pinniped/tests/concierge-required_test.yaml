@@ -39,10 +39,13 @@ tests:
       - hasDocuments:
           count: 0
 
-  - it: fails when the JWTAuthenticator has no issuer
+  # The issuer defaults to the Supervisor's, which is derived from its hostname, so it is only missing without all of them.
+  - it: fails when the JWTAuthenticator has no issuer and none can be derived
     template: templates/concierge/pinniped-extras.yaml
     set:
       concierge.jwtAuthenticator.issuer: ""
+      supervisor.federationDomain.issuer: ""
+      supervisor.ingress.hostname: ""
     asserts:
       - failedTemplate:
           errorMessage: "concierge.jwtAuthenticator.issuer is required when jwtAuthenticator.create=true"

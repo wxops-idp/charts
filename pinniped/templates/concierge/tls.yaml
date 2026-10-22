@@ -1,15 +1,17 @@
-{{- if and .Values.concierge.enabled .Values.concierge.tls.certManager.enabled .Values.concierge.tls.certManager.createSelfSignedIssuer }}
+{{- $ingress := include "pinniped.ingress" (dict "root" . "component" "concierge") | fromYaml -}}
+{{- $cm := include "pinniped.certManager" (dict "root" . "component" "concierge") | fromYaml -}}
+{{- if and .Values.concierge.enabled $cm.enabled .Values.concierge.tls.certManager.createSelfSignedIssuer }}
 apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
-  name: {{ default (printf "%s-selfsigned" (include "pinniped.componentName" (dict "root" . "component" "concierge"))) .Values.concierge.tls.certManager.issuerRef.name }}
+  name: {{ default (printf "%s-selfsigned" (include "pinniped.componentName" (dict "root" . "component" "concierge"))) $cm.issuerName }}
   namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "concierge") }}
   labels:
 {{ include "pinniped.componentLabels" (dict "root" . "component" "concierge" "componentValues" .Values.concierge) | indent 4 }}
 spec:
   selfSigned: {}
 {{- end }}
-{{- if and .Values.concierge.enabled .Values.concierge.tls.certManager.enabled .Values.concierge.tls.certManager.certificate.enabled }}
+{{- if and .Values.concierge.enabled $cm.enabled .Values.concierge.tls.certManager.certificate.enabled }}
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate
@@ -21,16 +23,16 @@ metadata:
 spec:
   secretName: {{ default (include "pinniped.concierge.impersonationTLSSecretName" .) .Values.concierge.tls.certManager.certificate.secretName }}
   issuerRef:
-    name: {{ default (printf "%s-selfsigned" (include "pinniped.componentName" (dict "root" . "component" "concierge"))) .Values.concierge.tls.certManager.issuerRef.name }}
-    kind: {{ .Values.concierge.tls.certManager.issuerRef.kind }}
-    group: {{ .Values.concierge.tls.certManager.issuerRef.group }}
+    name: {{ default (printf "%s-selfsigned" (include "pinniped.componentName" (dict "root" . "component" "concierge"))) $cm.issuerName }}
+    kind: {{ $cm.issuerKind }}
+    group: {{ $cm.issuerGroup }}
 {{- if .Values.concierge.tls.certManager.certificate.commonName }}
   commonName: {{ .Values.concierge.tls.certManager.certificate.commonName | quote }}
 {{- end }}
-{{- $conciergeDnsNames := .Values.concierge.tls.certManager.certificate.dnsNames -}}
-{{- if and (eq (len $conciergeDnsNames) 0) .Values.concierge.ingress.hostname }}
+{{- $conciergeDnsNames := include "pinniped.dnsNames" (dict "key" "concierge.tls.certManager.certificate.dnsNames" "names" .Values.concierge.tls.certManager.certificate.dnsNames) | fromYamlArray -}}
+{{- if and (eq (len $conciergeDnsNames) 0) $ingress.hostname }}
   dnsNames:
-    - {{ .Values.concierge.ingress.hostname | quote }}
+    - {{ $ingress.hostname | quote }}
 {{- else if gt (len $conciergeDnsNames) 0 }}
   dnsNames:
 {{ toYaml $conciergeDnsNames | indent 4 }}

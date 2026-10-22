@@ -1,15 +1,17 @@
-{{- if and .Values.supervisor.enabled .Values.supervisor.tls.certManager.enabled .Values.supervisor.tls.certManager.createSelfSignedIssuer }}
+{{- $ingress := include "pinniped.ingress" (dict "root" . "component" "supervisor") | fromYaml -}}
+{{- $cm := include "pinniped.certManager" (dict "root" . "component" "supervisor") | fromYaml -}}
+{{- if and .Values.supervisor.enabled $cm.enabled .Values.supervisor.tls.certManager.createSelfSignedIssuer }}
 apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
-  name: {{ default (printf "%s-selfsigned" (include "pinniped.componentName" (dict "root" . "component" "supervisor"))) .Values.supervisor.tls.certManager.issuerRef.name }}
+  name: {{ default (printf "%s-selfsigned" (include "pinniped.componentName" (dict "root" . "component" "supervisor"))) $cm.issuerName }}
   namespace: {{ include "pinniped.componentNamespace" (dict "root" . "component" "supervisor") }}
   labels:
 {{ include "pinniped.componentLabels" (dict "root" . "component" "supervisor" "componentValues" .Values.supervisor) | indent 4 }}
 spec:
   selfSigned: {}
 {{- end }}
-{{- if and .Values.supervisor.enabled .Values.supervisor.tls.certManager.enabled .Values.supervisor.tls.certManager.certificate.enabled }}
+{{- if and .Values.supervisor.enabled $cm.enabled .Values.supervisor.tls.certManager.certificate.enabled }}
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate
@@ -21,16 +23,16 @@ metadata:
 spec:
   secretName: {{ default (include "pinniped.supervisor.defaultTLSSecretName" .) .Values.supervisor.tls.certManager.certificate.secretName }}
   issuerRef:
-    name: {{ default (printf "%s-selfsigned" (include "pinniped.componentName" (dict "root" . "component" "supervisor"))) .Values.supervisor.tls.certManager.issuerRef.name }}
-    kind: {{ .Values.supervisor.tls.certManager.issuerRef.kind }}
-    group: {{ .Values.supervisor.tls.certManager.issuerRef.group }}
+    name: {{ default (printf "%s-selfsigned" (include "pinniped.componentName" (dict "root" . "component" "supervisor"))) $cm.issuerName }}
+    kind: {{ $cm.issuerKind }}
+    group: {{ $cm.issuerGroup }}
 {{- if .Values.supervisor.tls.certManager.certificate.commonName }}
   commonName: {{ .Values.supervisor.tls.certManager.certificate.commonName | quote }}
 {{- end }}
-{{- $supervisorDnsNames := .Values.supervisor.tls.certManager.certificate.dnsNames -}}
-{{- if and (eq (len $supervisorDnsNames) 0) .Values.supervisor.ingress.hostname }}
+{{- $supervisorDnsNames := include "pinniped.dnsNames" (dict "key" "supervisor.tls.certManager.certificate.dnsNames" "names" .Values.supervisor.tls.certManager.certificate.dnsNames) | fromYamlArray -}}
+{{- if and (eq (len $supervisorDnsNames) 0) $ingress.hostname }}
   dnsNames:
-    - {{ .Values.supervisor.ingress.hostname | quote }}
+    - {{ $ingress.hostname | quote }}
 {{- else if gt (len $supervisorDnsNames) 0 }}
   dnsNames:
 {{ toYaml $supervisorDnsNames | indent 4 }}

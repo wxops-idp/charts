@@ -1,0 +1,130 @@
+# certificate.dnsNames reaches the chart in many shapes. Helm's --set only builds a list from `[0]=name` or `{name}`, and Argo CD
+# passes what you type as it is, so `name`, `[name]` and `["name"]` arrive as strings. Every shape must render a real
+# list in the Certificate, because a bare scalar has no `-` and cert-manager rejects it.
+suite: certificate dnsNames
+templates:
+  - templates/concierge/tls.yaml
+  - templates/supervisor/tls.yaml
+set:
+  concierge.tls.certManager.enabled: true
+  concierge.tls.certManager.issuerRef.name: ca
+  concierge.ingress.hostname: host.example.com
+  supervisor.tls.certManager.enabled: true
+  supervisor.tls.certManager.issuerRef.name: ca
+  supervisor.ingress.hostname: sso.example.com
+tests:
+  - it: keeps a list as it is
+    template: templates/concierge/tls.yaml
+    set:
+      concierge.tls.certManager.certificate.dnsNames: [a.example.com, b.example.com]
+    asserts:
+      - equal:
+          path: spec.dnsNames
+          value: [a.example.com, b.example.com]
+
+  - it: turns a single name string, what --set key=name gives, into a list
+    template: templates/concierge/tls.yaml
+    set:
+      concierge.tls.certManager.certificate.dnsNames: a.example.com
+    asserts:
+      - equal:
+          path: spec.dnsNames
+          value: [a.example.com]
+
+  - it: reads [name], which is a string to Helm, as a list
+    template: templates/concierge/tls.yaml
+    set:
+      concierge.tls.certManager.certificate.dnsNames: "[a.example.com]"
+    asserts:
+      - equal:
+          path: spec.dnsNames
+          value: [a.example.com]
+
+  - it: reads ["name"] with its quotes, as Argo CD sends it, as a list
+    template: templates/concierge/tls.yaml
+    set:
+      concierge.tls.certManager.certificate.dnsNames: '["a.example.com"]'
+    asserts:
+      - equal:
+          path: spec.dnsNames
+          value: [a.example.com]
+
+  - it: drops quotes and spaces around list items
+    template: templates/concierge/tls.yaml
+    set:
+      concierge.tls.certManager.certificate.dnsNames: [' a.example.com ', '"b.example.com"']
+    asserts:
+      - equal:
+          path: spec.dnsNames
+          value: [a.example.com, b.example.com]
+
+  - it: splits a comma separated string into names
+    template: templates/concierge/tls.yaml
+    set:
+      concierge.tls.certManager.certificate.dnsNames: "a.example.com,b.example.com"
+    asserts:
+      - equal:
+          path: spec.dnsNames
+          value: [a.example.com, b.example.com]
+
+  - it: leaves a wildcard name alone
+    template: templates/concierge/tls.yaml
+    set:
+      concierge.tls.certManager.certificate.dnsNames: ["*.example.com"]
+    asserts:
+      - equal:
+          path: spec.dnsNames
+          value: ["*.example.com"]
+
+  - it: falls back to the ingress hostname for an empty string
+    template: templates/concierge/tls.yaml
+    set:
+      concierge.tls.certManager.certificate.dnsNames: ""
+    asserts:
+      - equal:
+          path: spec.dnsNames
+          value: [host.example.com]
+
+  - it: falls back to the ingress hostname for an empty list
+    template: templates/concierge/tls.yaml
+    set:
+      concierge.tls.certManager.certificate.dnsNames: []
+    asserts:
+      - equal:
+          path: spec.dnsNames
+          value: [host.example.com]
+
+  - it: falls back to the ingress hostname when only brackets or quotes were given
+    template: templates/concierge/tls.yaml
+    set:
+      concierge.tls.certManager.certificate.dnsNames: '[""]'
+    asserts:
+      - equal:
+          path: spec.dnsNames
+          value: [host.example.com]
+
+  - it: fails, naming the key, for a value that is not a list
+    template: templates/concierge/tls.yaml
+    set:
+      concierge.tls.certManager.certificate.dnsNames: 42
+    asserts:
+      - failedTemplate:
+          errorMessage: "concierge.tls.certManager.certificate.dnsNames must be a list of host names, for example [app.example.com]"
+
+  # The Supervisor Certificate uses the same rules.
+  - it: gives the Supervisor Certificate a list for every spelling too
+    template: templates/supervisor/tls.yaml
+    set:
+      supervisor.tls.certManager.certificate.dnsNames: '["sso.example.com"]'
+    asserts:
+      - equal:
+          path: spec.dnsNames
+          value: [sso.example.com]
+
+  - it: fails for the Supervisor with its own key in the message
+    template: templates/supervisor/tls.yaml
+    set:
+      supervisor.tls.certManager.certificate.dnsNames: 42
+    asserts:
+      - failedTemplate:
+          errorMessage: "supervisor.tls.certManager.certificate.dnsNames must be a list of host names, for example [app.example.com]"

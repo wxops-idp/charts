@@ -1,0 +1,224 @@
+# Gateway API is its own exposure, set under `<component>.gatewayAPI` and `global.gatewayAPI`, not an ingress provider.
+# These tests start from the chart's defaults, so nothing is switched on already.
+suite: gateway api
+templates:
+  - templates/supervisor/gateway-api.yaml
+  - templates/concierge/gateway-api.yaml
+  - templates/supervisor/ingress.yaml
+  - templates/supervisor/service.yaml
+  - templates/supervisor/tls.yaml
+  - templates/concierge/tls.yaml
+tests:
+  - it: renders nothing by default
+    template: templates/supervisor/gateway-api.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders a TLSRoute with the ingress hostname and the Supervisor ClusterIP backend
+    template: templates/supervisor/gateway-api.yaml
+    set:
+      supervisor.gatewayAPI.enabled: true
+      supervisor.gatewayAPI.parentRefs: [{name: main-gateway, sectionName: tls}]
+      supervisor.ingress.hostname: supervisor.example.com
+    asserts:
+      - isKind:
+          of: TLSRoute
+      - equal:
+          path: spec.hostnames
+          value: [supervisor.example.com]
+      - equal:
+          path: spec.parentRefs
+          value: [{name: main-gateway, sectionName: tls}]
+      - equal:
+          path: spec.rules[0].backendRefs[0]
+          value: {name: pinniped-supervisor-clusterip, port: 443}
+
+  - it: is independent of ingress, which stays off
+    template: templates/supervisor/ingress.yaml
+    set:
+      supervisor.gatewayAPI.enabled: true
+      supervisor.gatewayAPI.parentRefs: [{name: main-gateway}]
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: makes the ClusterIP Service for a route that names no backend, with ingress off
+    template: templates/supervisor/service.yaml
+    set:
+      supervisor.gatewayAPI.enabled: true
+      supervisor.gatewayAPI.parentRefs: [{name: main-gateway}]
+    asserts:
+      - equal:
+          path: metadata.name
+          value: pinniped-supervisor-clusterip
+        documentIndex: 1
+
+  - it: uses the backend named on the route, not the one named on the ingress
+    template: templates/supervisor/gateway-api.yaml
+    set:
+      supervisor.gatewayAPI.enabled: true
+      supervisor.gatewayAPI.parentRefs: [{name: main-gateway}]
+      supervisor.gatewayAPI.service: {name: route-backend, port: 8443}
+      supervisor.ingress.service.name: ingress-backend
+    asserts:
+      - equal:
+          path: spec.rules[0].backendRefs[0]
+          value: {name: route-backend, port: 8443}
+
+  - it: takes the hostname of the route before the ingress hostname, and hostnames before hostname
+    template: templates/supervisor/gateway-api.yaml
+    set:
+      supervisor.gatewayAPI.enabled: true
+      supervisor.gatewayAPI.parentRefs: [{name: main-gateway}]
+      supervisor.ingress.hostname: ingress.example.com
+      supervisor.gatewayAPI.hostname: route.example.com
+    asserts:
+      - equal:
+          path: spec.hostnames
+          value: [route.example.com]
+
+  - it: lists several hostnames
+    template: templates/supervisor/gateway-api.yaml
+    set:
+      supervisor.gatewayAPI.enabled: true
+      supervisor.gatewayAPI.parentRefs: [{name: main-gateway}]
+      supervisor.gatewayAPI.hostname: route.example.com
+      supervisor.gatewayAPI.hostnames: [a.example.com, b.example.com]
+    asserts:
+      - equal:
+          path: spec.hostnames
+          value: [a.example.com, b.example.com]
+
+  - it: builds the hostname from global.domain
+    template: templates/concierge/gateway-api.yaml
+    set:
+      global.domain: example.com
+      global.gatewayAPI.enabled: true
+      global.gatewayAPI.parentRefs: [{name: main-gateway}]
+    asserts:
+      - equal:
+          path: spec.hostnames
+          value: [concierge.example.com]
+      - equal:
+          path: spec.parentRefs
+          value: [{name: main-gateway}]
+
+  - it: a TLSRoute is v1 and a TCPRoute is v1alpha2 unless apiVersion is set
+    template: templates/supervisor/gateway-api.yaml
+    set:
+      supervisor.gatewayAPI.enabled: true
+      supervisor.gatewayAPI.parentRefs: [{name: main-gateway}]
+    asserts:
+      - equal:
+          path: apiVersion
+          value: gateway.networking.k8s.io/v1
+
+  - it: a TCPRoute defaults to v1alpha2
+    template: templates/supervisor/gateway-api.yaml
+    set:
+      supervisor.gatewayAPI.enabled: true
+      supervisor.gatewayAPI.routeKind: TCPRoute
+      supervisor.gatewayAPI.parentRefs: [{name: main-gateway}]
+    asserts:
+      - equal:
+          path: apiVersion
+          value: gateway.networking.k8s.io/v1alpha2
+
+  - it: an apiVersion of the route wins over the default of its kind
+    template: templates/concierge/gateway-api.yaml
+    set:
+      concierge.gatewayAPI.enabled: true
+      concierge.gatewayAPI.apiVersion: gateway.networking.k8s.io/v1alpha3
+      concierge.gatewayAPI.parentRefs: [{name: main-gateway}]
+    asserts:
+      - equal:
+          path: apiVersion
+          value: gateway.networking.k8s.io/v1alpha3
+
+  - it: a TCPRoute has no hostnames
+    template: templates/supervisor/gateway-api.yaml
+    set:
+      supervisor.gatewayAPI.enabled: true
+      supervisor.gatewayAPI.routeKind: TCPRoute
+      supervisor.gatewayAPI.parentRefs: [{name: main-gateway}]
+      supervisor.ingress.hostname: supervisor.example.com
+    asserts:
+      - isKind:
+          of: TCPRoute
+      - notExists:
+          path: spec.hostnames
+
+  - it: global enables both, and a component false wins
+    template: templates/concierge/gateway-api.yaml
+    set:
+      global.gatewayAPI.enabled: true
+      global.gatewayAPI.parentRefs: [{name: main-gateway}]
+      concierge.gatewayAPI.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: a component parentRefs wins over the global one
+    template: templates/supervisor/gateway-api.yaml
+    set:
+      global.gatewayAPI.enabled: true
+      global.gatewayAPI.parentRefs: [{name: shared-gateway}]
+      supervisor.gatewayAPI.parentRefs: [{name: own-gateway}]
+    asserts:
+      - equal:
+          path: spec.parentRefs
+          value: [{name: own-gateway}]
+
+  - it: puts the route annotations on the route, not the ingress ones
+    template: templates/supervisor/gateway-api.yaml
+    set:
+      supervisor.gatewayAPI.enabled: true
+      supervisor.gatewayAPI.parentRefs: [{name: main-gateway}]
+      supervisor.gatewayAPI.annotations: {route: "yes"}
+      supervisor.ingress.annotations: {ingress: "yes"}
+    asserts:
+      - equal:
+          path: metadata.annotations
+          value: {route: "yes"}
+
+  - it: fails when the Supervisor route has no parentRefs
+    template: templates/supervisor/gateway-api.yaml
+    set:
+      supervisor.gatewayAPI.enabled: true
+    asserts:
+      - failedTemplate:
+          errorMessage: "supervisor.gatewayAPI.parentRefs (or global.gatewayAPI.parentRefs) is required when the Gateway API route is enabled"
+
+  - it: fails when the Concierge route has no parentRefs
+    template: templates/concierge/gateway-api.yaml
+    set:
+      concierge.gatewayAPI.enabled: true
+    asserts:
+      - failedTemplate:
+          errorMessage: "concierge.gatewayAPI.parentRefs (or global.gatewayAPI.parentRefs) is required when the Gateway API route is enabled"
+
+  # --- the old 0.1.x shape fails loudly instead of rendering nothing. The first template that renders reports it, which is tls.yaml.
+  - it: fails when ingress.provider is still gateway-api
+    template: templates/supervisor/tls.yaml
+    set:
+      supervisor.ingress.provider: gateway-api
+    asserts:
+      - failedTemplate:
+          errorMessage: "supervisor.ingress.provider (or global.ingress.provider) must be traefik or nginx, got \"gateway-api\". Gateway API is set under supervisor.gatewayAPI and global.gatewayAPI"
+
+  - it: fails when global.ingress.provider is gateway-api
+    template: templates/supervisor/tls.yaml
+    set:
+      global.ingress.provider: gateway-api
+    asserts:
+      - failedTemplate:
+          errorMessage: "supervisor.ingress.provider (or global.ingress.provider) must be traefik or nginx, got \"gateway-api\". Gateway API is set under supervisor.gatewayAPI and global.gatewayAPI"
+
+  - it: fails when the old ingress.gatewayAPI block is still set
+    template: templates/concierge/tls.yaml
+    set:
+      concierge.ingress.gatewayAPI.enabled: true
+    asserts:
+      - failedTemplate:
+          errorMessage: "concierge.ingress.gatewayAPI moved to concierge.gatewayAPI, and it no longer needs ingress.provider=gateway-api"

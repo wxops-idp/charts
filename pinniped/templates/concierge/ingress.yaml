@@ -1,4 +1,5 @@
-{{- if and .Values.concierge.enabled .Values.concierge.ingress.enabled (eq .Values.concierge.ingress.provider "traefik") }}
+{{- $ingress := include "pinniped.ingress" (dict "root" . "component" "concierge") | fromYaml -}}
+{{- if and .Values.concierge.enabled $ingress.enabled (eq $ingress.provider "traefik") }}
 apiVersion: traefik.io/v1alpha1
 kind: IngressRouteTCP
 metadata:
@@ -16,7 +17,7 @@ spec:
 {{ toYaml . | indent 4 }}
 {{- end }}
   routes:
-    - match: {{ default (printf "HostSNI(`%s`)" (required "concierge.ingress.hostname is required when ingress is enabled" .Values.concierge.ingress.hostname )) .Values.concierge.ingress.traefik.match | quote }}
+    - match: {{ default (printf "HostSNI(`%s`)" (required "concierge.ingress.hostname is required when ingress is enabled" $ingress.hostname )) .Values.concierge.ingress.traefik.match | quote }}
       services:
         - name: {{ include "pinniped.concierge.ingressServiceName" . }}
           port: {{ default .Values.concierge.service.proxy.port .Values.concierge.ingress.service.port }}
@@ -28,7 +29,7 @@ spec:
     secretName: {{ .Values.concierge.ingress.traefik.tlsSecretName | quote }}
 {{- end }}
 {{- end }}
-{{- if and .Values.concierge.enabled .Values.concierge.ingress.enabled (eq .Values.concierge.ingress.provider "nginx") }}
+{{- if and .Values.concierge.enabled $ingress.enabled (eq $ingress.provider "nginx") }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -46,7 +47,7 @@ metadata:
 spec:
   ingressClassName: "nginx"
   rules:
-    - host: {{ required "concierge.ingress.hostname is required when nginx passthrough ingress is enabled" .Values.concierge.ingress.hostname | quote }}
+    - host: {{ required "concierge.ingress.hostname is required when nginx passthrough ingress is enabled" $ingress.hostname | quote }}
       http:
         paths:
           - path: {{ .Values.concierge.ingress.nginx.path | quote }}
@@ -59,7 +60,7 @@ spec:
   {{- if .Values.concierge.ingress.nginx.tlsSecretName }}
   tls:
     - hosts:
-        - {{ required "concierge.ingress.hostname is required when nginx passthrough ingress is enabled" .Values.concierge.ingress.hostname | quote }}
+        - {{ required "concierge.ingress.hostname is required when nginx passthrough ingress is enabled" $ingress.hostname | quote }}
       secretName: {{ .Values.concierge.ingress.nginx.tlsSecretName | quote }}
   {{- end }}
   {{- end }}
