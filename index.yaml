@@ -62,6 +62,30 @@ entries:
   pinniped:
   - apiVersion: v2
     appVersion: v0.46.0
+    created: "2026-10-22T02:03:04.867906004Z"
+    description: A Helm chart for Pinniped, a Kubernetes authentication via ImpersonationProxy
+      with Supervisor and Concierge components.
+    digest: c744b4c72564ff1b2a15de725363aeadf1ec3aa6ae98ac1a81ca48510063a7d0
+    keywords:
+    - kubernetes-login
+    - secure-kubernetes-access
+    - authentication
+    - impersonation-proxy
+    - supervisor
+    - concierge
+    maintainers:
+    - email: xeusnguyen@gmail.com
+      name: Xeus Nguyen
+      url: https://wiki.xeusnguyen.xyz
+    name: pinniped
+    sources:
+    - https://github.com/vmware/pinniped
+    type: application
+    urls:
+    - https://github.com/wxops-idp/charts/releases/download/pinniped-0.2.0/pinniped-0.2.0.tgz
+    version: 0.2.0
+  - apiVersion: v2
+    appVersion: v0.46.0
     created: "2026-10-16T02:10:22.409812602Z"
     description: A Helm chart for Pinniped, a Kubernetes authentication via ImpersonationProxy
       with Supervisor and Concierge components.
@@ -159,4 +183,4 @@ entries:
     urls:
     - https://github.com/wxops-idp/charts/releases/download/wxops-portal-0.1.0/wxops-portal-0.1.0.tgz
     version: 0.1.0
-generated: "2026-10-19T04:03:26.090493058Z"
+generated: "2026-10-22T02:03:04.867930189Z"
